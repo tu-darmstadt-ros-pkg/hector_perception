@@ -56,8 +56,6 @@ std::string type2str(int type) {
     return r;
 }
 
-
-
 float computeRailSupportGeneric(const cv::Mat& img, int row, int col, float angle = 0.0)
 {
 
@@ -106,7 +104,6 @@ float computeRailSupportGeneric(const cv::Mat& img, int row, int col, float angl
     }
     return support;
 }
-
 
 float computeRailSupportMultiple(const cv::Mat& img, int row, int col, float angle = 0.0)
 {
@@ -163,21 +160,15 @@ float computeRailSupport(const cv::Mat& img, int row, int col, float angle = 0.0
     return support;
 }
 
-
-int detectRails(cv::Mat& cv_img)
+void thresholdedDistance(const cv::Mat& img_in, cv::Mat& img_out)
 {
-    cv::namedWindow("grid",cv::WINDOW_NORMAL);
-    cv::imshow("grid", cv_img);
 
+    img_in.copyTo(img_out);
+    img_out.setTo(0);
 
-    //std::cout<<cv_img<<std::endl;
-    cv::Mat grid_diff;
-    cv_img.copyTo(grid_diff);
-    grid_diff.setTo(0);
-
-    for(unsigned int i_r = 5; i_r < cv_img.rows-5; ++i_r)
+    for(unsigned int i_r = 5; i_r < img_in.rows-5; ++i_r)
     {
-        for(unsigned int i_c = 5; i_c < cv_img.cols-5; ++i_c)
+        for(unsigned int i_c = 5; i_c < img_in.cols-5; ++i_c)
         {
             for(int i_x = -2; i_x < 3; ++i_x)
             {
@@ -185,101 +176,42 @@ int detectRails(cv::Mat& cv_img)
                 {
                     if(!(i_x ==0 && i_y == 0))
                     {
-                        float delta = (cv_img.at<float>(i_r,i_c)-cv_img.at<float>(i_r+i_x,i_c+i_y));
+                        float delta = (img_in.at<float>(i_r,i_c)-img_in.at<float>(i_r+i_x,i_c+i_y));
 
                         if (delta <20.0 && delta >0.0)
                             delta = 0.0;
-                        // if (delta >50.0)
-                        //     delta = 50.0;
-                        grid_diff.at<float>(i_r,i_c) += delta;
+                        img_out.at<float>(i_r,i_c) += delta;
                     }
                 }
             }
         }
     }
+}
 
-
-    for(unsigned int i_r = 5; i_r < cv_img.rows-5; ++i_r)
+void computeRailSupport(const cv::Mat& img_in, cv::Mat& img_out)
+{
+    img_in.copyTo(img_out);
+    img_out.setTo(0);
+    for(unsigned int i_r = 0; i_r < img_in.rows; ++i_r)
     {
-        for(unsigned int i_c = 5; i_c < cv_img.cols-5; ++i_c)
-        {
-            if (grid_diff.at<float>(i_r,i_c) > 0.0)
-                grid_diff.at<float>(i_r,i_c) = 255.0;
-        }
-    }
-
-    cv::namedWindow("grid_diff",cv::WINDOW_NORMAL);
-    cv::imshow("grid_diff", grid_diff);
-
-
-    cv::Mat feature_diff;
-    cv_img.copyTo(feature_diff);
-    feature_diff.setTo(0);
-    for(unsigned int i_r = 7; i_r < cv_img.rows-7; ++i_r)
-    {
-        for(unsigned int i_c = 7; i_c < cv_img.cols-7; ++i_c)
+        for(unsigned int i_c = 0; i_c < img_in.cols; ++i_c)
         {
             std::vector<float> supports;
             for(float i_orient = 0.; i_orient<8.; i_orient++)
-                supports.push_back(computeRailSupportMultiple(grid_diff,i_r,i_c,M_PI*i_orient/8.0));
+                supports.push_back(computeRailSupportMultiple(img_in,i_r,i_c,M_PI*i_orient/8.0));
             float support = *std::max_element(supports.begin(),supports.end());
 
             if(support > 4.3)
-                feature_diff.at<float>(i_r,i_c) =(1.0/(pow(5.0,2)))*support*support;
-
+                img_out.at<float>(i_r,i_c) =(1.0/(pow(5.0,2)))*support*support;
         }
     }
+}
 
-    cv::namedWindow("feature_diff",cv::WINDOW_NORMAL);
-    cv::imshow("feature_diff", feature_diff);
-
-
-    for(unsigned int i_r = 5; i_r < feature_diff.rows-5; ++i_r)
-    {
-        for(unsigned int i_c = 5; i_c < feature_diff.cols-5; ++i_c)
-        {
-            if (feature_diff.at<float>(i_r,i_c) > 0.0)
-                feature_diff.at<float>(i_r,i_c) = 255.0;
-        }
-    }
-
-
-
-
-
-
-
-
-    int erosion_size = 2;
-    cv::Mat element = cv::getStructuringElement( 1,
-                                                 cv::Size( 2*erosion_size + 1, 2*erosion_size+1 ),
-                                                 cv::Point( erosion_size, erosion_size ) );
-
-    /// Apply the erosion operation
-    cv::dilate( feature_diff, feature_diff, element );
-    //cv::dilate( feature_diff, feature_diff, element );
-    //cv::dilate( feature_diff, feature_diff, element );
-    cv::namedWindow("grid_diff_eroded",cv::WINDOW_NORMAL);
-    cv::imshow("grid_diff_eroded", feature_diff);
-
-
-    for(unsigned int i_r = 0; i_r < feature_diff.rows; ++i_r)
-    {
-        for(unsigned int i_c = 0; i_c < feature_diff.cols; ++i_c)
-        {
-
-                feature_diff.at<float>(i_r,i_c) = 255.0- feature_diff.at<float>(i_r,i_c);
-        }
-    }
-    cv::Mat converted_grid_diff;
-    feature_diff.convertTo(converted_grid_diff,CV_8UC1);
-
-
-
-
+void detectBlobs(const cv::Mat& img, std::vector<cv::KeyPoint>& keypoints)
+{
 
     cv::Mat blob_base;
-    feature_diff.convertTo(blob_base,CV_8UC1);
+    img.convertTo(blob_base,CV_8UC1);
     cv::SimpleBlobDetector::Params params;
 
     // Change thresholds
@@ -307,17 +239,57 @@ int detectRails(cv::Mat& cv_img)
     params.filterByColor = false;
 
     // Detect blobs.
-    std::vector<cv::KeyPoint> keypoints;
+    keypoints.clear();
     detector.detect( blob_base, keypoints);
+}
 
-    // Draw detected blobs as red circles.
-    // DrawMatchesFlags::DRAW_RICH_KEYPOINTS flag ensures the size of the circle corresponds to the size of blob
+int detectRails(cv::Mat& cv_img)
+{
+    cv::namedWindow("grid",cv::WINDOW_NORMAL);
+    cv::imshow("grid", cv_img);
+
+    cv::Mat grid_diff;
+    thresholdedDistance(cv_img,grid_diff);
+    cv::threshold(grid_diff,grid_diff,0.0,255,cv::THRESH_BINARY);
+
+    cv::namedWindow("grid_diff",cv::WINDOW_NORMAL);
+    cv::imshow("grid_diff", grid_diff);
+
+
+    cv::Mat feature_diff;
+    computeRailSupport(grid_diff,feature_diff);
+
+    cv::namedWindow("feature_diff",cv::WINDOW_NORMAL);
+    cv::imshow("feature_diff", feature_diff);
+
+    cv::threshold(feature_diff,feature_diff,0.0,255,cv::THRESH_BINARY);
+    int erosion_size = 2;
+    cv::Mat element = cv::getStructuringElement( 1,
+                                                 cv::Size( 2*erosion_size + 1, 2*erosion_size+1 ),
+                                                 cv::Point( erosion_size, erosion_size ) );
+    cv::dilate( feature_diff, feature_diff, element );
+    cv::namedWindow("grid_diff_eroded",cv::WINDOW_NORMAL);
+    cv::imshow("grid_diff_eroded", feature_diff);
+
+    cv::threshold(feature_diff,feature_diff,0.0,255,cv::THRESH_BINARY_INV);
+    cv::Mat converted_feature_diff;
+    feature_diff.convertTo(converted_feature_diff,CV_8UC1);
+
+
+    std::vector<cv::KeyPoint> keypoints;
+    detectBlobs(feature_diff,keypoints);
     cv::Mat im_with_keypoints;
-    // cv_img.copyTo(im_with_keypoints);
-    //  im_with_keypoints.setTo(0);
     std::cout<<"n_blobs:"<<keypoints.size()<<std::endl;
-    cv::drawKeypoints( blob_base, keypoints, im_with_keypoints, cv::Scalar(0,0,255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS );
+    cv::drawKeypoints( converted_feature_diff, keypoints, im_with_keypoints, cv::Scalar(0,0,255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS );
     // Show blobs
+    cv::namedWindow("keypoints", cv::WINDOW_NORMAL);
+    cv::imshow("keypoints", im_with_keypoints );
+
+
+    cv::Mat converted_grid;
+    cv_img.convertTo(converted_grid,CV_8UC1);
+    cv::drawKeypoints( converted_grid, keypoints, im_with_keypoints, cv::Scalar(0,0,255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS );
+
     cv::namedWindow("keypoints", cv::WINDOW_NORMAL);
     cv::imshow("keypoints", im_with_keypoints );
 
@@ -420,8 +392,7 @@ int main(int argc, char **argv)
     cv::Mat cv_img;
     //cv_img = cv::imread("/home/kevin/Downloads/Gray_Image.png");
     cv_img = cv::imread("/home/kevin/Downloads/Gray_Image_rotated.png");
-    cv::Mat conv_img;//(cv_img.rows,cv_imgs.cols,CV_32FC1);
-
+    cv::Mat conv_img;
     cv::cvtColor(cv_img, conv_img, CV_RGB2GRAY);
     conv_img.convertTo(conv_img,CV_32FC1);
     std::cout<<type2str(conv_img.type())<<std::endl;
