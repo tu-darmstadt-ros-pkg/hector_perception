@@ -16,13 +16,16 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     nh.param("voxelGridX", voxelGridX_, 0.05);
     nh.param("voxelGridY", voxelGridY_, 0.05);
     nh.param("voxelGridZ", voxelGridZ_, 0.05);
-    nh.param("planeSegDistTresh", planeSegDistTresh_, 0.1);
+    nh.param("planeSegDistTresh", planeSegDistTresh_, 0.03);
+    nh.param("numberPointsThresh", numberPointsThresh_, 1000);
 
     nh.param("worldFrame", worldFrame_, std::string("/world"));
 
     orginal_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/input_cloud_debug", 100, true);
     after_pass_through_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/after_pass_through_debug", 100, true);
-    after_voxel_grid_pub_debug = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/after_voxel_gird_debug", 100, true);
+    after_voxel_grid_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/after_voxel_gird_debug", 100, true);
+    final_cloud_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/final_cloud_pub_debug", 100, true);
+    plane_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/plane_pub_debug", 100, true);
 
     pointcloud_sub_ = nh.subscribe("/worldmodel_main/pointcloud_vis", 10, &HectorFivePipesDetection::PclCallback, this);
 
@@ -32,7 +35,6 @@ HectorFivePipesDetection::~HectorFivePipesDetection()
 {}
 
 // maybe better as service
-// pointcloud from rgb-d camera ???
 // pointcloud fomr laserscan/ region of intereset in front of the robot ???
 void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg){
     // transform frame
@@ -75,7 +77,7 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
     pass.setInputCloud(input_cloud);
     pass.setFilterFieldName("z");
     pass.setFilterLimits(passThroughZMin_, passThroughZMax_);
-    pass.filter(*processCloud_v1);
+    pass.filter(*processCloud_v2);
 
 //    pass.setInputCloud(processCloud_v1);
 //    pass.setFilterFieldName("y");
@@ -87,20 +89,21 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
 //    pass.setFilterLimits(passThroughXMin_, passThroughXMax_);
 //    pass.filter(*processCloud_v1);
 
-    after_pass_through_pub_debug_.publish(processCloud_v1);
+//    after_pass_through_pub_debug_.publish(processCloud_v1);
 
-    pcl::VoxelGrid<pcl::PointXYZ> vox;
-    vox.setInputCloud(processCloud_v1);
-    vox.setLeafSize(voxelGridX_, voxelGridY_, voxelGridZ_);
-    vox.setDownsampleAllData(false);
-    vox.filter(*processCloud_v2);
+//    pcl::VoxelGrid<pcl::PointXYZ> vox;
+//    vox.setInputCloud(processCloud_v1);
+//    vox.setLeafSize(voxelGridX_, voxelGridY_, voxelGridZ_);
+//    vox.setDownsampleAllData(false);
+//    vox.filter(*processCloud_v2);
 
-    after_voxel_grid_pub_debug.publish(processCloud_v2);
+//    after_voxel_grid_pub_debug_.publish(processCloud_v2);
 
     pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
     pcl::SACSegmentation<pcl::PointXYZ> seg;
     seg.setModelType (pcl::SACMODEL_PLANE);
+    seg.setOptimizeCoefficients (true);
     seg.setMethodType (pcl::SAC_RANSAC);
     seg.setDistanceThreshold (planeSegDistTresh_);
 
@@ -113,7 +116,10 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
             PCL_ERROR ("Could not estimate more planar models for the given dataset.");
         }
 
-        ROS_DEBUG("extract rest potins");
+        if(inliers->indices.size() < numberPointsThresh_){
+            break;
+        }
+        ROS_INFO("extract reset points");
         pcl::ExtractIndices<pcl::PointXYZ> extract;
         extract.setInputCloud (processCloud_v2);
         extract.setIndices (inliers);
@@ -122,19 +128,17 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
         output_cloud->header.frame_id=worldFrame_;
         processCloud_v2=output_cloud;
 
-    }while(inliers->indices.size() != 0);
+        final_cloud_pub_debug_.publish(processCloud_v2);
+    }while(1);
 
-    ROS_DEBUG("extract plane ");
-    pcl::ExtractIndices<pcl::PointXYZ> extract;
-    extract.setInputCloud (processCloud_v2);
-    extract.setIndices (inliers);
-    extract.setNegative(false);
-    extract.filter (*output_cloud);
-    output_cloud->header.frame_id=worldFrame_;
+    ROS_INFO("ouput cluster size: %i", output_cloud->size());
+    final_cloud_pub_debug_.publish(output_cloud);
 
     // 5 cluster / cylinder ??!!??
 
     // get position of clusters / cylinder
+
+    // use plane and search for 5 cycles
 
 }
 

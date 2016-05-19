@@ -40,7 +40,9 @@ public:
 protected:
     ros::Publisher orginal_pub_debug_;
     ros::Publisher after_pass_through_pub_debug_;
-    ros::Publisher after_voxel_grid_pub_debug;
+    ros::Publisher after_voxel_grid_pub_debug_;
+    ros::Publisher final_cloud_pub_debug_;
+    ros::Publisher plane_pub_debug_;
 
     ros::Subscriber pointcloud_sub_;
 
@@ -59,6 +61,7 @@ private:
     double voxelGridY_;
     double voxelGridZ_;
     double planeSegDistTresh_;
+    int numberPointsThresh_;
     std::string worldFrame_;
 
     //Dynamic reconfigure //TODO
