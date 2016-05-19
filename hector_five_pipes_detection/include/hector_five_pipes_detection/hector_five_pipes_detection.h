@@ -26,6 +26,8 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/extract_indices.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <pcl/kdtree/kdtree.h>
+#include <pcl/segmentation/extract_clusters.h>
 
 
 namespace hector_five_pipes_detection{
@@ -43,6 +45,8 @@ protected:
     ros::Publisher after_voxel_grid_pub_debug_;
     ros::Publisher final_cloud_pub_debug_;
     ros::Publisher plane_pub_debug_;
+    ros::Publisher cloud_filtered_publisher_;
+    ros::Publisher cluster_pub_debug_;
 
     ros::Subscriber pointcloud_sub_;
 
@@ -61,6 +65,11 @@ private:
     double voxelGridY_;
     double voxelGridZ_;
     double planeSegDistTresh_;
+    double minRadius_;
+    double maxRadius_;
+    double clusterTolerance_;
+    int minClusterSize_;
+    int maxClusterSize_;
     int numberPointsThresh_;
     std::string worldFrame_;
 
