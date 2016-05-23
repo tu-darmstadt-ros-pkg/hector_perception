@@ -188,10 +188,11 @@ void thresholdedDistance(const cv::Mat& img_in, cv::Mat& img_out)
     }
 }
 
-void computeRailSupport(const cv::Mat& img_in, cv::Mat& img_out)
+void computeRailSupport(const cv::Mat& img_in, cv::Mat& img_support, cv::Mat& img_max_orientation)
 {
-    img_in.copyTo(img_out);
-    img_out.setTo(0);
+    img_in.copyTo(img_support);
+    img_support.setTo(0);
+    img_support.copyTo(img_max_orientation);
     for(unsigned int i_r = 0; i_r < img_in.rows; ++i_r)
     {
         for(unsigned int i_c = 0; i_c < img_in.cols; ++i_c)
@@ -199,13 +200,23 @@ void computeRailSupport(const cv::Mat& img_in, cv::Mat& img_out)
             std::vector<float> supports;
             for(float i_orient = 0.; i_orient<8.; i_orient++)
                 supports.push_back(computeRailSupportMultiple(img_in,i_r,i_c,M_PI*i_orient/8.0));
-            float support = *std::max_element(supports.begin(),supports.end());
+            auto support_it = std::max_element(supports.begin(),supports.end());
+            int max_orient = std::distance(supports.begin(), support_it);
+            float support = *support_it;
 
             if(support > 4.3)
-                img_out.at<float>(i_r,i_c) =(1.0/(pow(5.0,2)))*support*support;
+            {
+                img_support.at<float>(i_r,i_c) =(1.0/(pow(5.0,2)))*support*support;
+                img_max_orientation.at<float>(i_r,i_c) = M_PI*(float)max_orient/8.;
+            }
+            else
+            {
+                img_max_orientation.at<float>(i_r,i_c) = -1.;
+            }
         }
     }
 }
+
 
 void detectBlobs(const cv::Mat& img, std::vector<cv::KeyPoint>& keypoints)
 {
@@ -243,6 +254,100 @@ void detectBlobs(const cv::Mat& img, std::vector<cv::KeyPoint>& keypoints)
     detector.detect( blob_base, keypoints);
 }
 
+float computeBlobOrientation(const cv::Mat& img, cv::KeyPoint keypoint, float radius)
+{
+    std::map<float,int> orientations;
+    for(int i_x = keypoint.pt.x -radius; i_x <keypoint.pt.x + radius; i_x++)
+    {
+        for(int i_y = keypoint.pt.y -radius; i_y <keypoint.pt.y + radius; i_y++)
+        {
+            float dx = i_x -keypoint.pt.x;
+            float dy = i_y -keypoint.pt.y;
+            if(dx*dx+dy*dy<radius*radius)
+            {
+                float orientation = img.at<float>(i_y,i_x);
+                orientations[orientation]++;
+            }
+        }
+    }
+    std::cout<<std::endl;
+    std::cout<<std::endl;
+    int max_count = -1;
+    float max_value = -1.;
+    for(auto& o : orientations)
+    {
+        //std::cout << kv.first << " has value " << kv.second << std::endl;
+        if(o.first != -1 && o.second > max_count)
+        {
+            max_count = o.second;
+            max_value = o.first;
+        }
+    }
+
+    //std::cout <<" max value " << max_value << std::endl;
+    return max_value;
+}
+
+void computeBlobOrientations(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, std::vector<float>& blob_orientations)
+{
+    for(cv::KeyPoint keypoint : keypoints)
+    {
+        blob_orientations.push_back(computeBlobOrientation(max_orientations, keypoint, 15));
+    }
+}
+
+
+void fitLineToBlob(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, const std::vector<float>& blob_orientations, std::vector<cv::Vec4f>& lines)
+{
+    cv::Mat img_filtered_orientations;
+    max_orientations.copyTo(img_filtered_orientations);
+    img_filtered_orientations.setTo(0);
+
+    cv::Mat img_lines;
+    max_orientations.copyTo(img_lines);
+    img_lines.setTo(0);
+
+    for(int i_keypoint = 0; i_keypoint<keypoints.size(); i_keypoint++)
+    {
+        cv::KeyPoint keypoint = keypoints[i_keypoint];
+        std::vector<cv::Point2f> line_points;
+        float orientation = blob_orientations[i_keypoint];
+        int radius = 20;
+        for(int i_x = keypoint.pt.x -radius; i_x <keypoint.pt.x + radius; i_x++)
+        {
+            for(int i_y = keypoint.pt.y -radius; i_y <keypoint.pt.y + radius; i_y++)
+            {
+                float dx = i_x -keypoint.pt.x;
+                float dy = i_y -keypoint.pt.y;
+                if(dx*dx+dy*dy<radius*radius)
+                {
+                    if((std::fmod(std::abs(orientation - max_orientations.at<float>(i_y,i_x)),M_PI) < 0.2*M_PI) && (max_orientations.at<float>(i_y,i_x)>= 0.))
+                    {
+                        img_filtered_orientations.at<float>(i_y,i_x) = 1.0;
+                        line_points.push_back(cv::Point2f(i_x,i_y));
+                    }
+                }
+            }
+        }
+
+
+        cv::Vec4f fitted_line;
+        cv::fitLine(line_points,fitted_line,CV_DIST_WELSCH,0,0.01,0.01);
+        lines.push_back(fitted_line);
+
+        cv::Point2i p1(fitted_line[2]+10*fitted_line[0],fitted_line[3]+10*fitted_line[1]);
+        cv::Point2i p2(fitted_line[2]-10*fitted_line[0],fitted_line[3]-10*fitted_line[1]);
+        cv::line(img_lines,p1,p2,cv::Scalar(255));
+
+    }
+
+    cv::namedWindow("detected img_lines",cv::WINDOW_NORMAL);
+    cv::imshow("detected img_lines", img_lines);
+    cv::namedWindow("img_filtered_orientations", cv::WINDOW_NORMAL);
+    cv::imshow("img_filtered_orientations", img_filtered_orientations );
+
+}
+
 int detectRails(cv::Mat& cv_img)
 {
     cv::namedWindow("grid",cv::WINDOW_NORMAL);
@@ -257,10 +362,13 @@ int detectRails(cv::Mat& cv_img)
 
 
     cv::Mat feature_diff;
-    computeRailSupport(grid_diff,feature_diff);
+    cv::Mat max_orientations;
+    computeRailSupport(grid_diff,feature_diff,max_orientations);
 
     cv::namedWindow("feature_diff",cv::WINDOW_NORMAL);
     cv::imshow("feature_diff", feature_diff);
+    cv::namedWindow("max_orientations",cv::WINDOW_NORMAL);
+    cv::imshow("max_orientations", max_orientations);
 
     cv::threshold(feature_diff,feature_diff,0.0,255,cv::THRESH_BINARY);
     int erosion_size = 2;
@@ -293,6 +401,38 @@ int detectRails(cv::Mat& cv_img)
     cv::namedWindow("keypoints", cv::WINDOW_NORMAL);
     cv::imshow("keypoints", im_with_keypoints );
 
+    for(cv::KeyPoint keypoint : keypoints)
+    {
+        cv::circle(converted_grid, keypoint.pt, 15 ,cv::Scalar(255));
+    }
+
+    std::vector<float> blob_orientations;
+    computeBlobOrientations(max_orientations, keypoints, blob_orientations);
+    std::vector<cv::Vec4f> lines;
+    fitLineToBlob(max_orientations, keypoints, blob_orientations, lines);
+
+    cv::namedWindow("converted_grid", cv::WINDOW_NORMAL);
+    cv::imshow("converted_grid", converted_grid );
+
+    cv::Mat final_image_grey;
+    cv_img.copyTo(final_image_grey);
+
+    cv::namedWindow("final_image_grey", cv::WINDOW_NORMAL);
+    cv::imshow("final_image_grey", final_image_grey );
+
+    cv::Mat final_image;
+    final_image_grey.convertTo(final_image, CV_8UC1);
+
+    for(cv::Vec4f line : lines)
+    {
+        cv::Point2i p1(line[2]+12*line[0],line[3]+12*line[1]);
+        cv::Point2i p2(line[2]-12*line[0],line[3]-12*line[1]);
+        cv::line(final_image, p1, p2, cv::Scalar(255));
+    }
+
+    cv::namedWindow("final_image", cv::WINDOW_NORMAL);
+    cv::imshow("final_image", final_image );
+
     /*
     std::vector<cv::Vec2f> lines;
     cv::HoughLines(converted_grid_diff, lines, 2, M_PI/180, 70, 0, 0 ); // draw lines
@@ -319,7 +459,7 @@ int detectRails(cv::Mat& cv_img)
     cv::namedWindow("detected lines",cv::WINDOW_NORMAL);
     cv::imshow("detected lines", cdst);
 */
-/*
+    /*
     std::vector<cv::Vec4i> linesp;
     cv::HoughLinesP(converted_grid_diff, linesp, 1, M_PI/180, 1, 10, 0 ); // draw lines
     //cv::HoughLinesP(converted_grid_diff, linesp, 1, M_PI/180, 2, 15, 0 ); // draw lines
