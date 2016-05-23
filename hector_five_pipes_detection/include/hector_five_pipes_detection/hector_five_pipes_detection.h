@@ -37,7 +37,6 @@ class HectorFivePipesDetection{
 public:
     HectorFivePipesDetection();
     virtual ~HectorFivePipesDetection();
-    void PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg);
 
 protected:
     ros::Publisher orginal_pub_debug_;
@@ -47,13 +46,15 @@ protected:
     ros::Publisher plane_pub_debug_;
     ros::Publisher cloud_filtered_publisher_;
     ros::Publisher cluster_pub_debug_;
+    ros::Publisher five_pipes_pos_pub_;
 
     ros::Subscriber pointcloud_sub_;
 
     tf::TransformListener listener_;
     Eigen::Affine3d to_map_;
+    void PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg);
 
-private:    
+private:
     //params
     double passThroughXMin_;
     double passThroughYMin_;
@@ -68,12 +69,14 @@ private:
     double minRadius_;
     double maxRadius_;
     double clusterTolerance_;
+    double searchRadius_;
     int minClusterSize_;
     int maxClusterSize_;
     int numberPointsThresh_;
     std::string worldFrame_;
 
     //Dynamic reconfigure //TODO
+
 
 };
 }

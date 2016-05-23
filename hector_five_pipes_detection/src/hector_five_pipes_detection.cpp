@@ -18,12 +18,10 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     nh.param("voxelGridZ", voxelGridZ_, 0.05);
     nh.param("planeSegDistTresh", planeSegDistTresh_, 0.03);
     nh.param("numberPointsThresh", numberPointsThresh_, 1000);
-    nh.param("minRadius", minRadius_, 0.01);
-    nh.param("maxRadius", maxRadius_, 0.1);
     nh.param("clusterTolerance", clusterTolerance_, 0.03);
     nh.param("minClusterSize", minClusterSize_, 10);
     nh.param("maxClusterSize", maxClusterSize_, 1000);
-
+    nh.param("searchRadius", searchRadius_, 0.2);
 
     nh.param("worldFrame", worldFrame_, std::string("/world"));
 
@@ -34,6 +32,7 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     plane_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/plane_pub_debug", 100, true);
     cloud_filtered_publisher_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/cylinder_cloud_debug", 100, true);
     cluster_pub_debug_= nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/hector_five_pipe_detection/cluster_cloud_debug", 100, true);
+    five_pipes_pos_pub_= nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/hector_five_pipe_detection/five_pipes_positions", 100, true);
 
     pointcloud_sub_ = nh.subscribe("/worldmodel_main/pointcloud_vis", 10, &HectorFivePipesDetection::PclCallback, this);
 
@@ -165,24 +164,63 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
 
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZI>);
     cloud_cluster->header.frame_id=rest_cloud->header.frame_id;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster_centers (new pcl::PointCloud<pcl::PointXYZ>);
+    cloud_cluster_centers->header.frame_id=rest_cloud->header.frame_id;
     int j = 0;
-      for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
-      {
+    double sum_x=0;
+    double sum_y=0;
+    double sum_z=0;
+    for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
+    {
+        pcl::PointXYZ center;
+        sum_x=0;
+        sum_y=0;
+        sum_z=0;
         for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit){
-          pcl::PointXYZI pushback;
-          pushback.x=rest_cloud->points[*pit].x;
-          pushback.y=rest_cloud->points[*pit].y;
-          pushback.z=rest_cloud->points[*pit].z;
-          pushback.intensity=j;
-          cloud_cluster->points.push_back (pushback);
+            pcl::PointXYZI pushback;
+            pushback.x=rest_cloud->points[*pit].x;
+            pushback.y=rest_cloud->points[*pit].y;
+            pushback.z=rest_cloud->points[*pit].z;
+            pushback.intensity=j;
+            cloud_cluster->points.push_back (pushback);
+            sum_x=sum_x + pushback.x;
+            sum_y=sum_y + pushback.y;
+            sum_z=sum_z + pushback.z;
         }
+        center.x=sum_x/it->indices.size();
+        center.y=sum_y/it->indices.size();
+        center.z=sum_z/it->indices.size();
+        cloud_cluster_centers->points.push_back(center);
         j++;
-      }
+    }
 
-      cluster_pub_debug_.publish(cloud_cluster);
+    cluster_pub_debug_.publish(cloud_cluster);
 
     // get position of clusters / cylinder
+    pcl::PointCloud<pcl::PointXYZ>::Ptr start_check_positions (new pcl::PointCloud<pcl::PointXYZ>);
+    start_check_positions->header.frame_id=rest_cloud->header.frame_id;
 
+    pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
+    kdtree.setInputCloud (cloud_cluster_centers);
+
+    for(int i=0; i< cloud_cluster_centers->points.size(); i++){
+    pcl::PointXYZ searchPoint;
+
+    searchPoint= cloud_cluster_centers->points.at(i);
+
+    // Neighbors within radius search
+    std::vector<int> pointIdxRadiusSearch;
+    std::vector<float> pointRadiusSquaredDistance;
+
+    if ( kdtree.radiusSearch (searchPoint, searchRadius_, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 4 )
+    {
+        ROS_INFO("more than 4 centers in radius => start check positions found");
+        for (size_t i = 0; i < pointIdxRadiusSearch.size (); ++i)
+            start_check_positions->points.push_back(cloud_cluster_centers->points[ pointIdxRadiusSearch[i] ]);
+    }
+    }
+
+    five_pipes_pos_pub_.publish(start_check_positions);
 
 }
 
