@@ -28,6 +28,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <pcl/kdtree/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
+#include <vigir_perception_msgs/PointCloudRegionRequest.h>
 
 #include <dynamic_reconfigure/server.h>
 #include <hector_five_pipes_detection/HectorFivePipesDetectionConfig.h>
@@ -52,6 +53,7 @@ protected:
     ros::Publisher five_pipes_pos_pub_;
 
     ros::Subscriber pointcloud_sub_;
+    ros::ServiceClient pointcloud_srv_client_;
 
     tf::TransformListener listener_;
     Eigen::Affine3d to_map_;

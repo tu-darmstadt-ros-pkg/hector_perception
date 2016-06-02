@@ -3,7 +3,7 @@
 
 namespace hector_five_pipes_detection{
 HectorFivePipesDetection::HectorFivePipesDetection(){
-    ROS_INFO ("HectorFivePipesDetection started");
+    ROS_DEBUG ("HectorFivePipesDetection started");
     ros::NodeHandle nh("");
 
     //load params
@@ -45,70 +45,45 @@ HectorFivePipesDetection::~HectorFivePipesDetection()
 {}
 
 // maybe better as service
-// pointcloud fomr laserscan/ region of intereset in front of the robot ???
-void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg){
-    // transform frame
-    ROS_INFO("stairs position callback enterd");
+// pointcloud from laserscan/ region of intereset in front of the robot ???
+void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg){   
+    ros::NodeHandle n("");
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::PCLPointCloud2 pcl_pc2;
-    pcl_conversions::toPCL(*pc_msg,pcl_pc2);
-    pcl::fromPCLPointCloud2(pcl_pc2,*input_cloud);
-    //transform cloud to /world
-    tf::StampedTransform transform_cloud_to_map;
-    try{
-        ros::Time time = pc_msg->header.stamp;
-        listener_.waitForTransform(worldFrame_, pc_msg->header.frame_id,
-                                   time, ros::Duration(3.0));
-        listener_.lookupTransform(worldFrame_, pc_msg->header.frame_id,
-                                  time, transform_cloud_to_map);
+
+    pointcloud_srv_client_ = n.serviceClient<vigir_perception_msgs::PointCloudRegionRequest>("/worldmodel_main/pointcloud_roi");
+    vigir_perception_msgs::PointCloudRegionRequest srv;
+    vigir_perception_msgs::EnvironmentRegionRequest erreq;
+    erreq.header.frame_id=worldFrame_;
+    //TODO::bouding box parameter from action
+    erreq.bounding_box_max.x=10;
+    erreq.bounding_box_max.y=10;
+    erreq.bounding_box_max.z=passThroughZMax_;
+    erreq.bounding_box_min.x=-10;
+    erreq.bounding_box_min.y=-10;
+    erreq.bounding_box_min.z=passThroughZMin_;
+    erreq.resolution=0;  //0 <=> default
+    erreq.request_augment=0;
+    srv.request.region_req=erreq;
+    srv.request.aggregation_size=500;
+    if(!pointcloud_srv_client_.call(srv)){
+        ROS_ERROR("service: /worldmodel/pointcloud_roi is not working");
+    }else{
+        sensor_msgs::PointCloud2 pointCloud_world;
+        pointCloud_world=srv.response.cloud;
+
+        pcl::PCLPointCloud2 pcl_pc;
+        pcl_conversions::toPCL(pointCloud_world, pcl_pc);
+        pcl::fromPCLPointCloud2(pcl_pc, *input_cloud);
+        input_cloud->header.frame_id=worldFrame_;
     }
-    catch (tf::TransformException ex){
-        ROS_ERROR("Lookup Transform failed: %s",ex.what());
-        return;
-    }
 
-    tf::transformTFToEigen(transform_cloud_to_map, to_map_);
-
-    // Transform to /world
-    boost::shared_ptr<pcl::PointCloud<pcl::PointXYZ> > cloud_tmp(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::transformPointCloud(*input_cloud, *cloud_tmp, to_map_);
-    input_cloud = cloud_tmp;
-    input_cloud->header.frame_id= transform_cloud_to_map.frame_id_;
-
-    // filter pointcloud (pass throught /region of interest, voxelgrid filter)
-    ROS_INFO("Hector Stair Detection get Surface");
-    pcl::PointCloud<pcl::PointXYZ>::Ptr processCloud_v1(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::PointCloud<pcl::PointXYZ>::Ptr processCloud_v2(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud_plane_seg(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::PointCloud<pcl::PointXYZ>::Ptr rest_cloud(new pcl::PointCloud<pcl::PointXYZ>());
 
     orginal_pub_debug_.publish(input_cloud);
 
-    pcl::PassThrough<pcl::PointXYZ> pass;
-    pass.setInputCloud(input_cloud);
-    pass.setFilterFieldName("z");
-    pass.setFilterLimits(passThroughZMin_, passThroughZMax_);
-    pass.filter(*processCloud_v2);
-
-    //    pass.setInputCloud(processCloud_v1);
-    //    pass.setFilterFieldName("y");
-    //    pass.setFilterLimits(passThroughYMin_, passThroughYMax_);
-    //    pass.filter(*processCloud_v1);
-
-    //    pass.setInputCloud(processCloud_v1);
-    //    pass.setFilterFieldName("x");
-    //    pass.setFilterLimits(passThroughXMin_, passThroughXMax_);
-    //    pass.filter(*processCloud_v1);
-
-    //    after_pass_through_pub_debug_.publish(processCloud_v1);
-
-    //    pcl::VoxelGrid<pcl::PointXYZ> vox;
-    //    vox.setInputCloud(processCloud_v1);
-    //    vox.setLeafSize(voxelGridX_, voxelGridY_, voxelGridZ_);
-    //    vox.setDownsampleAllData(false);
-    //    vox.filter(*processCloud_v2);
-
-    //    after_voxel_grid_pub_debug_.publish(processCloud_v2);
+    processCloud_v2=input_cloud;
 
     pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
@@ -163,7 +138,7 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
     ec.setInputCloud (rest_cloud);
     ec.extract (cluster_indices);
 
-    ROS_INFO("number cluster: %i", cluster_indices.size());
+    ROS_DEBUG("number cluster: %i", cluster_indices.size());
 
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZI>);
     cloud_cluster->header.frame_id=rest_cloud->header.frame_id;
@@ -207,20 +182,20 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
     kdtree.setInputCloud (cloud_cluster_centers);
 
     for(int i=0; i< cloud_cluster_centers->points.size(); i++){
-    pcl::PointXYZ searchPoint;
+        pcl::PointXYZ searchPoint;
 
-    searchPoint= cloud_cluster_centers->points.at(i);
+        searchPoint= cloud_cluster_centers->points.at(i);
 
-    // Neighbors within radius search
-    std::vector<int> pointIdxRadiusSearch;
-    std::vector<float> pointRadiusSquaredDistance;
+        // Neighbors within radius search
+        std::vector<int> pointIdxRadiusSearch;
+        std::vector<float> pointRadiusSquaredDistance;
 
-    if ( kdtree.radiusSearch (searchPoint, searchRadius_, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 4 )
-    {
-        ROS_INFO("more than 4 centers in radius => start check positions found");
-        for (size_t i = 0; i < pointIdxRadiusSearch.size (); ++i)
-            start_check_positions->points.push_back(cloud_cluster_centers->points[ pointIdxRadiusSearch[i] ]);
-    }
+        if ( kdtree.radiusSearch (searchPoint, searchRadius_, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 4 )
+        {
+            ROS_DEBUG("more than 4 centers in radius => start check positions found");
+            for (size_t i = 0; i < pointIdxRadiusSearch.size (); ++i)
+                start_check_positions->points.push_back(cloud_cluster_centers->points[ pointIdxRadiusSearch[i] ]);
+        }
     }
 
     five_pipes_pos_pub_.publish(start_check_positions);
