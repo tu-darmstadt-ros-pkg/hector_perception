@@ -29,6 +29,9 @@
 #include <pcl/kdtree/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
 
+#include <dynamic_reconfigure/server.h>
+#include <hector_five_pipes_detection/HectorFivePipesDetectionConfig.h>
+
 
 namespace hector_five_pipes_detection{
 
@@ -75,7 +78,10 @@ private:
     int numberPointsThresh_;
     std::string worldFrame_;
 
-    //Dynamic reconfigure //TODO
+    //Dynamic reconfigure
+    dynamic_reconfigure::Server<hector_five_pipes_detection::HectorFivePipesDetectionConfig> dynamic_recf_server;
+    dynamic_reconfigure::Server<hector_five_pipes_detection::HectorFivePipesDetectionConfig>::CallbackType dynamic_recf_type;
+    void dynamic_recf_cb(hector_five_pipes_detection::HectorFivePipesDetectionConfig &config, uint32_t level);
 
 
 };

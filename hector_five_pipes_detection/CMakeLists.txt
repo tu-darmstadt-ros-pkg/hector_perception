@@ -10,7 +10,10 @@ find_package(catkin REQUIRED COMPONENTS
   tf_conversions
   sensor_msgs
   std_msgs
+  dynamic_reconfigure
 )
+
+generate_dynamic_reconfigure_options(config/HectorFivePipesConfig.cfg)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -108,7 +111,7 @@ include_directories(include ${catkin_INCLUDE_DIRS})
    include/${PROJECT_NAME}/hector_five_pipes_detection.h
  )
 
-add_dependencies(hector_five_pipes_detection ${catkin_EXPORTED_TARGETS})
+add_dependencies(hector_five_pipes_detection ${PROJECT_NAME}_gencfg ${catkin_EXPORTED_TARGETS})
 
 ## Declare a cpp executable
 add_executable(hector_five_pipes_detection_node src/hector_five_pipes_detection_node.cpp)

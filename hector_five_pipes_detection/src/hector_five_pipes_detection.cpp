@@ -10,9 +10,9 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     nh.param("passThroughXMin", passThroughXMin_, 0.1);
     nh.param("passThroughYMin", passThroughYMin_, 0.1);
     nh.param("passThroughZMin", passThroughZMin_, 0.1);
-    nh.param("passThroughXMin", passThroughXMax_, 0.1);
-    nh.param("passThroughYMin", passThroughYMax_, 0.0);
-    nh.param("passThroughZMin", passThroughZMax_, 2.0);
+    nh.param("passThroughXMax", passThroughXMax_, 0.1);
+    nh.param("passThroughYMax", passThroughYMax_, 0.0);
+    nh.param("passThroughZMax", passThroughZMax_, 2.0);
     nh.param("voxelGridX", voxelGridX_, 0.05);
     nh.param("voxelGridY", voxelGridY_, 0.05);
     nh.param("voxelGridZ", voxelGridZ_, 0.05);
@@ -24,6 +24,9 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     nh.param("searchRadius", searchRadius_, 0.2);
 
     nh.param("worldFrame", worldFrame_, std::string("/world"));
+
+    dynamic_recf_type = boost::bind(&HectorFivePipesDetection::dynamic_recf_cb, this, _1, _2);
+    dynamic_recf_server.setCallback(dynamic_recf_type);
 
     orginal_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/input_cloud_debug", 100, true);
     after_pass_through_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/after_pass_through_debug", 100, true);
@@ -221,6 +224,26 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
     }
 
     five_pipes_pos_pub_.publish(start_check_positions);
+
+}
+
+void HectorFivePipesDetection::dynamic_recf_cb(hector_five_pipes_detection::HectorFivePipesDetectionConfig &config, uint32_t level)
+{
+    passThroughXMin_= config.passThroughXMin;
+    passThroughYMin_= config.passThroughYMin;
+    passThroughZMin_= config.passThroughZMin;
+    passThroughXMax_= config.passThroughXMax;
+    passThroughYMax_= config.passThroughYMax;
+    passThroughZMax_= config.passThroughZMax;
+    voxelGridX_= config.voxelGridX;
+    voxelGridY_= config.voxelGridY;
+    voxelGridZ_= config.voxelGridZ;
+    planeSegDistTresh_= config.planeSegDistTresh;
+    numberPointsThresh_= config.numberPointsThresh;
+    clusterTolerance_= config.clusterTolerance;
+    minClusterSize_= config.minClusterSize;
+    maxClusterSize_= config.maxClusterSize;
+    searchRadius_= config.searchRadius;
 
 }
 

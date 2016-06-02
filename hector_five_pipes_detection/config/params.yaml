@@ -1,0 +1,15 @@
+passThroughXMin: 0.1
+passThroughYMin: 0.1
+passThroughZMin: 0.1
+passThroughXMax: 0.1
+passThroughYMax: 0.0
+passThroughZMax: 2.0
+voxelGridX: 0.05
+voxelGridY: 0.05
+voxelGridZ: 0.05
+planeSegDistTresh: 0.03
+numberPointsThresh: 1000
+clusterTolerance: 0.03
+minClusterSize: 10
+maxClusterSize: 1000
+searchRadius: 0.2
