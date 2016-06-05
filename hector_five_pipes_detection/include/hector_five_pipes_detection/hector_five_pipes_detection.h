@@ -7,6 +7,7 @@
 #include <tf/transform_datatypes.h>
 #include <tf/transform_listener.h>
 #include <tf_conversions/tf_eigen.h>
+
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_types.h>
@@ -25,6 +26,7 @@
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/extract_indices.h>
+
 #include <sensor_msgs/PointCloud2.h>
 #include <pcl/kdtree/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
@@ -33,6 +35,8 @@
 #include <dynamic_reconfigure/server.h>
 #include <hector_five_pipes_detection/HectorFivePipesDetectionConfig.h>
 
+#include <actionlib/server/simple_action_server.h>
+#include <hector_perception_msgs/DetectObjectAction.h>
 
 namespace hector_five_pipes_detection{
 
@@ -59,6 +63,8 @@ protected:
     Eigen::Affine3d to_map_;
     void PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg);
 
+    void executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal);
+
 private:
     //params
     double passThroughXMin_;
@@ -84,6 +90,8 @@ private:
     dynamic_reconfigure::Server<hector_five_pipes_detection::HectorFivePipesDetectionConfig> dynamic_recf_server;
     dynamic_reconfigure::Server<hector_five_pipes_detection::HectorFivePipesDetectionConfig>::CallbackType dynamic_recf_type;
     void dynamic_recf_cb(hector_five_pipes_detection::HectorFivePipesDetectionConfig &config, uint32_t level);
+
+    boost::shared_ptr<actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction> > detection_object_server_;
 
 
 };
