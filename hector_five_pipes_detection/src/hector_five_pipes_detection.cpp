@@ -39,10 +39,26 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
 
     pointcloud_sub_ = nh.subscribe("/worldmodel_main/pointcloud_vis", 10, &HectorFivePipesDetection::PclCallback, this);
 
+    ros::NodeHandle pnh("~");
+    detection_object_server_.reset(new actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction>(pnh, "detect", boost::bind(&HectorFivePipesDetection::executeCallback, this, _1) ,false));
+    detection_object_server_->start();
+
 }
 
 HectorFivePipesDetection::~HectorFivePipesDetection()
 {}
+
+void HectorFivePipesDetection::executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal)
+{
+
+  hector_perception_msgs::DetectObjectResult result;
+  result.detection_success = false;
+
+  // Do stuff and set result appropriately
+
+  detection_object_server_->setSucceeded(result);
+
+}
 
 // maybe better as service
 // pointcloud fomr laserscan/ region of intereset in front of the robot ???
@@ -147,7 +163,7 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
 
     }while(1);
 
-    ROS_DEBUG("ouput plane size: %i", output_cloud_plane_seg->size());
+    ROS_DEBUG("ouput plane size: %d", (int)output_cloud_plane_seg->size());
     final_cloud_pub_debug_.publish(rest_cloud);
 
     // clustering
@@ -163,7 +179,7 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
     ec.setInputCloud (rest_cloud);
     ec.extract (cluster_indices);
 
-    ROS_INFO("number cluster: %i", cluster_indices.size());
+    ROS_INFO("number cluster: %d", (int)cluster_indices.size());
 
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZI>);
     cloud_cluster->header.frame_id=rest_cloud->header.frame_id;

@@ -8,8 +8,10 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   pcl_conversions
   tf_conversions
+  actionlib
   sensor_msgs
   std_msgs
+  hector_perception_msgs
   dynamic_reconfigure
 )
 
@@ -91,7 +93,7 @@ include_directories(${PCL_INCLUDE_DIRS})
 catkin_package(
  INCLUDE_DIRS include
   LIBRARIES hector_five_pipes_detection
-  CATKIN_DEPENDS roscpp pcl_conversions tf_conversions sensor_msgs std_msgs
+  CATKIN_DEPENDS roscpp pcl_conversions tf_conversions actionlib sensor_msgs std_msgs hector_perception_msgs
   DEPENDS system_lib
 )
 
