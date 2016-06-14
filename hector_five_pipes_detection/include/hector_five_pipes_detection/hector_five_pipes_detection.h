@@ -61,9 +61,11 @@ protected:
 
     tf::TransformListener listener_;
     Eigen::Affine3d to_map_;
-    void PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg);
+    //void PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg);
 
     void executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal);
+
+    bool findPipes(const geometry_msgs::Point& min, const geometry_msgs::Point& max, const std::string& frame_id);
 
 private:
     //params

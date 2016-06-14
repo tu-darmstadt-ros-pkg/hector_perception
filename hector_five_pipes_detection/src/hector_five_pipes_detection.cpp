@@ -37,7 +37,7 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     cluster_pub_debug_= nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/hector_five_pipe_detection/cluster_cloud_debug", 100, true);
     five_pipes_pos_pub_= nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/hector_five_pipe_detection/five_pipes_positions", 100, true);
 
-    pointcloud_sub_ = nh.subscribe("/worldmodel_main/pointcloud_vis", 10, &HectorFivePipesDetection::PclCallback, this);
+    //pointcloud_sub_ = nh.subscribe("/worldmodel_main/pointcloud_vis", 10, &HectorFivePipesDetection::PclCallback, this);
 
     ros::NodeHandle pnh("~");
     detection_object_server_.reset(new actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction>(pnh, "detect", boost::bind(&HectorFivePipesDetection::executeCallback, this, _1) ,false));
@@ -52,17 +52,22 @@ void HectorFivePipesDetection::executeCallback(const hector_perception_msgs::Det
 {
 
   hector_perception_msgs::DetectObjectResult result;
-  result.detection_success = false;
 
-  // Do stuff and set result appropriately
+
+  // Do stuff and set result appropriately  
+  result.detection_success = findPipes(goal->detect_request.roi_hint.bounding_box_min, goal->detect_request.roi_hint.bounding_box_max, goal->detect_request.roi_hint.header.frame_id);
 
   detection_object_server_->setSucceeded(result);
-
 }
 
+bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const geometry_msgs::Point& max, const std::string& frame_id)
+{
 // maybe better as service
 // pointcloud from laserscan/ region of intereset in front of the robot ???
-void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg){   
+//void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg){
+
+    bool success = false;
+
     ros::NodeHandle n("");
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
@@ -81,6 +86,7 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
     erreq.request_augment=0;
     srv.request.region_req=erreq;
     srv.request.aggregation_size=500;
+
     if(!pointcloud_srv_client_.call(srv)){
         ROS_ERROR("service: /worldmodel/pointcloud_roi is not working");
     }else{
@@ -211,11 +217,14 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::Const
             ROS_DEBUG("more than 4 centers in radius => start check positions found");
             for (size_t i = 0; i < pointIdxRadiusSearch.size (); ++i)
                 start_check_positions->points.push_back(cloud_cluster_centers->points[ pointIdxRadiusSearch[i] ]);
+
+            success = true;
         }
     }
 
     five_pipes_pos_pub_.publish(start_check_positions);
 
+    return success;
 }
 
 void HectorFivePipesDetection::dynamic_recf_cb(hector_five_pipes_detection::HectorFivePipesDetectionConfig &config, uint32_t level)
