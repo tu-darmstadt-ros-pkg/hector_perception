@@ -31,6 +31,45 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/photo/photo.hpp>
 
+
+#include <hector_rails_detection/rails_detection.h>
+
+namespace hector_rails_detection
+{
+RailsDetection::RailsDetection()
+{
+    ros::NodeHandle nh("");
+    elevation_map_subscriber_ = nh.subscribe("/elevation_mapping/elevation_map",10, &RailsDetection::elevationMapCallback, this);
+    ros::NodeHandle pnh("~");
+    detection_object_server_.reset(new actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction>(pnh, "detect", boost::bind(&RailsDetection::executeCallback, this, _1) ,false));
+    detection_object_server_->start();
+}
+RailsDetection::~RailsDetection()
+{}
+
+
+void RailsDetection::elevationMapCallback(const grid_map_msgs::GridMap& grid_map)
+{
+    ROS_INFO("map callback");
+
+}
+
+void RailsDetection::executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal)
+{
+    ROS_INFO("callback");
+
+    hector_perception_msgs::DetectObjectResult result;
+
+
+    // Do stuff and set result appropriately
+   // result.detection_success = findPipes(goal->detect_request.roi_hint.bounding_box_min, goal->detect_request.roi_hint.bounding_box_max, goal->detect_request.roi_hint.header.frame_id);
+
+    detection_object_server_->setSucceeded(result);
+}
+
+
+}
+/*
 typedef std::vector<float> section;
 
 std::string type2str(int type) {
@@ -476,6 +515,7 @@ int detectRails(cv::Mat& cv_img)
     cv::namedWindow("detected linesp",cv::WINDOW_NORMAL);
     cv::imshow("detected linesp", cdstp);
 */
+/*
     cv::waitKey(0);
     return 0;
 }
@@ -520,12 +560,13 @@ int detectRails()
 
     detectRails(cv_img);
 */
+/*
     return 0;
 }
 
 
 
-
+/*
 int main(int argc, char **argv)
 {
 
@@ -540,3 +581,4 @@ int main(int argc, char **argv)
     //detectRails();
     detectRails(conv_img);
 }
+*/
