@@ -17,7 +17,7 @@ public:
     virtual ~RailsDetection();
 
 
-    void elevationMapCallback(const grid_map_msgs::GridMap& grid_map);
+    void elevationMapCallback(const grid_map_msgs::GridMap& grid_map_msg);
     void executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal);
 
 

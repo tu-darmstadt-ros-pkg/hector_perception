@@ -23,6 +23,7 @@ find_package(catkin REQUIRED COMPONENTS
     dynamic_reconfigure
     hector_perception_msgs
     grid_map_msgs
+    grid_map_ros
 )
 
 link_libraries(${OCTOMAP_LIBRARIES})
@@ -33,6 +34,7 @@ catkin_package(
    INCLUDE_DIRS include
    LIBRARIES ${PROJECT_NAME}
    CATKIN_DEPENDS cv_bridge geometry_msgs octomap_msgs octomap_ros actionlib roscpp sensor_msgs std_msgs tf visualization_msgs hector_perception_msgs grid_map_msgs
+    grid_map_ros
    DEPENDS system_lib
 )
 

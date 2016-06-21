@@ -30,9 +30,13 @@
 #include <cv.h>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/photo/photo.hpp>
-
+#include <eigen3/Eigen/Core>
 
 #include <hector_rails_detection/rails_detection.h>
+#include <grid_map_core/GridMap.hpp>
+#include <grid_map_core/grid_map_core.hpp>
+
+#include <grid_map_ros/GridMapRosConverter.hpp>
 
 namespace hector_rails_detection
 {
@@ -48,9 +52,62 @@ RailsDetection::~RailsDetection()
 {}
 
 
-void RailsDetection::elevationMapCallback(const grid_map_msgs::GridMap& grid_map)
+void RailsDetection::elevationMapCallback(const grid_map_msgs::GridMap& grid_map_msg)
 {
+    //grid_map.data
     ROS_INFO("map callback");
+    cv::Mat image;
+    grid_map::GridMap gridMap;
+    //std::cout<<grid_map_msg.data[0]<<std::endl;
+    std::vector<float> data0 = grid_map_msg.data[0].data;
+
+
+    int p = 0;
+    float max = std::numeric_limits<float>::lowest();
+    float min = std::numeric_limits<float>::infinity();
+
+    for (auto &val : data0)
+    {
+        if (!std::isnan(val) && val>max)
+            max = val;
+        if (!std::isnan(val) && val<min)
+            min = val;
+        p++;
+    }
+    grid_map::GridMapRosConverter::fromMessage(grid_map_msg, gridMap);
+    ROS_INFO("max %f min %f", max, min);
+
+    int encoding = CV_32F;
+    std::string layer = "elevation";
+
+    if (gridMap.getSize()(0) > 0 && gridMap.getSize()(1) > 0) {
+        image = cv::Mat::zeros(gridMap.getSize()(0), gridMap.getSize()(1), encoding);
+    } else {
+        std::cerr << "Invalid grid map?" << std::endl;
+    }
+    float lowerValue = min;
+    float upperValue = max;
+
+    // Clamp outliers.
+    grid_map::GridMap map = gridMap;
+    map.get(layer) = map.get(layer).unaryExpr(grid_map::Clamp<float>(lowerValue, upperValue));
+    const grid_map::Matrix& data = gridMap[layer];
+
+    // Convert to image.
+    for (grid_map::GridMapIterator iterator(map); !iterator.isPastEnd(); ++iterator) {
+        const grid_map::Index index(*iterator);
+        if (std::isfinite(data(index(0), index(1)))) {
+            const float& value = data(index(0), index(1));
+            const float imageValue = (float) value;//(value - lowerValue) / (upperValue - lowerValue)); //* (float) imageMax);
+            const grid_map::Index imageIndex(iterator.getUnwrappedIndex());
+            unsigned int channel = 0;
+            image.at<cv::Vec<float, 1>>(imageIndex(0), imageIndex(1))[channel] = imageValue;
+        }
+    }
+
+    cv::namedWindow("cv_grid_map",cv::WINDOW_NORMAL);
+    cv::imshow("cv_grid_map", image);
+    cv::waitKey(0);
 
 }
 
@@ -62,14 +119,13 @@ void RailsDetection::executeCallback(const hector_perception_msgs::DetectObjectG
 
 
     // Do stuff and set result appropriately
-   // result.detection_success = findPipes(goal->detect_request.roi_hint.bounding_box_min, goal->detect_request.roi_hint.bounding_box_max, goal->detect_request.roi_hint.header.frame_id);
+    // result.detection_success = findPipes(goal->detect_request.roi_hint.bounding_box_min, goal->detect_request.roi_hint.bounding_box_max, goal->detect_request.roi_hint.header.frame_id);
 
     detection_object_server_->setSucceeded(result);
 }
 
 
-}
-/*
+
 typedef std::vector<float> section;
 
 std::string type2str(int type) {
@@ -498,7 +554,7 @@ int detectRails(cv::Mat& cv_img)
     cv::namedWindow("detected lines",cv::WINDOW_NORMAL);
     cv::imshow("detected lines", cdst);
 */
-    /*
+/*
     std::vector<cv::Vec4i> linesp;
     cv::HoughLinesP(converted_grid_diff, linesp, 1, M_PI/180, 1, 10, 0 ); // draw lines
     //cv::HoughLinesP(converted_grid_diff, linesp, 1, M_PI/180, 2, 15, 0 ); // draw lines
@@ -515,12 +571,15 @@ int detectRails(cv::Mat& cv_img)
     cv::namedWindow("detected linesp",cv::WINDOW_NORMAL);
     cv::imshow("detected linesp", cdstp);
 */
-/*
+
     cv::waitKey(0);
     return 0;
 }
 
 
+}
+
+/*
 int detectRails()
 {
 
