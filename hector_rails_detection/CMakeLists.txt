@@ -25,6 +25,8 @@ find_package(catkin REQUIRED COMPONENTS
     grid_map_msgs
     grid_map_ros
 )
+generate_dynamic_reconfigure_options(config/HectorRailsConfig.cfg)
+
 
 link_libraries(${OCTOMAP_LIBRARIES})
 

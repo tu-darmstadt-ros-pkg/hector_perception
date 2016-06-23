@@ -27,7 +27,6 @@
 //=================================================================================================
 
 #include <fstream>
-#include <cv.h>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/photo/photo.hpp>
 #include <eigen3/Eigen/Core>
@@ -37,16 +36,31 @@
 #include <grid_map_core/grid_map_core.hpp>
 
 #include <grid_map_ros/GridMapRosConverter.hpp>
-
 namespace hector_rails_detection
 {
 RailsDetection::RailsDetection()
 {
     ros::NodeHandle nh("");
-    elevation_map_subscriber_ = nh.subscribe("/elevation_mapping/elevation_map",10, &RailsDetection::elevationMapCallback, this);
+    elevation_map_subscriber_ = nh.subscribe("/elevation_mapping/elevation_map_global",10, &RailsDetection::elevationMapCallback, this);
+
+    nh.param("gradient_z_min", gradient_z_min_, -0.5);
+    nh.param("gradient_z_max", gradient_z_max_, 2.0);
+    nh.param("gradient_dif_min", gradient_dif_min_, 0.0);
+    nh.param("gradient_dif_max", gradient_dif_max_, 2.0);
+    nh.param("rail_support_feature_thresh", rail_support_feature_thresh_, 1.3);
+    nh.param("rail_support_feature_section_thresh", rail_support_feature_section_thresh_, 0.3);
+
+    is_init = false;
+
+
     ros::NodeHandle pnh("~");
     detection_object_server_.reset(new actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction>(pnh, "detect", boost::bind(&RailsDetection::executeCallback, this, _1) ,false));
     detection_object_server_->start();
+
+
+    dynamic_recf_type = boost::bind(&RailsDetection::dynamic_recf_cb, this, _1, _2);
+    dynamic_recf_server.setCallback(dynamic_recf_type);
+
 }
 RailsDetection::~RailsDetection()
 {}
@@ -54,44 +68,62 @@ RailsDetection::~RailsDetection()
 
 void RailsDetection::elevationMapCallback(const grid_map_msgs::GridMap& grid_map_msg)
 {
-    //grid_map.data
-    ROS_INFO("map callback");
-    cv::Mat image;
-    grid_map::GridMap gridMap;
-    //std::cout<<grid_map_msg.data[0]<<std::endl;
+
+    /*
     std::vector<float> data0 = grid_map_msg.data[0].data;
 
 
     int p = 0;
-    float max = std::numeric_limits<float>::lowest();
-    float min = std::numeric_limits<float>::infinity();
+    max_height_ = std::numeric_limits<float>::lowest();
+    min_height_ = std::numeric_limits<float>::infinity();
 
     for (auto &val : data0)
     {
-        if (!std::isnan(val) && val>max)
-            max = val;
-        if (!std::isnan(val) && val<min)
-            min = val;
+        if (!std::isnan(val) && val>max_height_)
+            max_height_ = val;
+        if (!std::isnan(val) && val<min_height_)
+            min_height_ = val;
         p++;
     }
-    grid_map::GridMapRosConverter::fromMessage(grid_map_msg, gridMap);
-    ROS_INFO("max %f min %f", max, min);
+    */
+    max_height_ = 1.;
+    min_height_ = 0.;
+
+    if(!is_init)
+    {
+        ROS_INFO("map callback");
+        grid_map::GridMapRosConverter::fromMessage(grid_map_msg, grid_map_);
+        ROS_INFO("max %f min %f", max_height_, min_height_);
+        is_init = true;
+    }
+
+
+
+}
+
+void RailsDetection::executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal)
+{
+    ROS_INFO("callback");
+
+    hector_perception_msgs::DetectObjectResult result;
+    cv::Mat image;
+
 
     int encoding = CV_32F;
     std::string layer = "elevation";
 
-    if (gridMap.getSize()(0) > 0 && gridMap.getSize()(1) > 0) {
-        image = cv::Mat::zeros(gridMap.getSize()(0), gridMap.getSize()(1), encoding);
+    if (grid_map_.getSize()(0) > 0 && grid_map_.getSize()(1) > 0) {
+        image = cv::Mat::zeros(grid_map_.getSize()(0), grid_map_.getSize()(1), encoding);
     } else {
         std::cerr << "Invalid grid map?" << std::endl;
     }
-    float lowerValue = min;
-    float upperValue = max;
+    float lowerValue = min_height_;
+    float upperValue = max_height_;
 
     // Clamp outliers.
-    grid_map::GridMap map = gridMap;
+    grid_map::GridMap map = grid_map_;
     map.get(layer) = map.get(layer).unaryExpr(grid_map::Clamp<float>(lowerValue, upperValue));
-    const grid_map::Matrix& data = gridMap[layer];
+    const grid_map::Matrix& data = grid_map_[layer];
 
     // Convert to image.
     for (grid_map::GridMapIterator iterator(map); !iterator.isPastEnd(); ++iterator) {
@@ -105,22 +137,7 @@ void RailsDetection::elevationMapCallback(const grid_map_msgs::GridMap& grid_map
         }
     }
 
-    cv::namedWindow("cv_grid_map",cv::WINDOW_NORMAL);
-    cv::imshow("cv_grid_map", image);
-    cv::waitKey(0);
-
-}
-
-void RailsDetection::executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal)
-{
-    ROS_INFO("callback");
-
-    hector_perception_msgs::DetectObjectResult result;
-
-
-    // Do stuff and set result appropriately
-    // result.detection_success = findPipes(goal->detect_request.roi_hint.bounding_box_min, goal->detect_request.roi_hint.bounding_box_max, goal->detect_request.roi_hint.header.frame_id);
-
+    detectRails(image);
     detection_object_server_->setSucceeded(result);
 }
 
@@ -128,7 +145,7 @@ void RailsDetection::executeCallback(const hector_perception_msgs::DetectObjectG
 
 typedef std::vector<float> section;
 
-std::string type2str(int type) {
+std::string RailsDetection::type2str(int type) {
     std::string r;
 
     uchar depth = type & CV_MAT_DEPTH_MASK;
@@ -151,7 +168,7 @@ std::string type2str(int type) {
     return r;
 }
 
-float computeRailSupportGeneric(const cv::Mat& img, int row, int col, float angle = 0.0)
+float RailsDetection::computeRailSupportGeneric(const cv::Mat& img, int row, int col, float angle = 0.0)
 {
 
     //angle = 3.14/2.0;
@@ -184,7 +201,7 @@ float computeRailSupportGeneric(const cv::Mat& img, int row, int col, float angl
             //if(img.at<float>(line_it.pos())==sec[2])
             float weight = std::abs((float)i_it-0.5*(float)line_it.count)/(float)line_it.count;
             //std::cout<<weight<<std::endl;
-            if(sec[2]*(img.at<float>(line_it.pos())-127.5) > 0.0)
+            if(sec[2]*(img.at<float>(line_it.pos())-0.1) > 0.0)
             {
                 pos += weight;
             }
@@ -194,13 +211,13 @@ float computeRailSupportGeneric(const cv::Mat& img, int row, int col, float angl
             }
             line_it++;
         }
-        if(pos/(neg+1E-5)>0.5)
+        if(pos/(neg+1E-5)>rail_support_feature_section_thresh_)
             support++;
     }
     return support;
 }
 
-float computeRailSupportMultiple(const cv::Mat& img, int row, int col, float angle = 0.0)
+float RailsDetection::computeRailSupportMultiple(const cv::Mat& img, int row, int col, float angle = 0.0)
 {
     float support0 = computeRailSupportGeneric(img, row, col, angle);
 
@@ -216,51 +233,13 @@ float computeRailSupportMultiple(const cv::Mat& img, int row, int col, float ang
 
 }
 
-float computeRailSupport(const cv::Mat& img, int row, int col, float angle = 0.0)
-{
-
-    //angle = 3.14/2.0;
-    int radius = 6;
-    float dx = (cos(angle)*(float)radius);
-    float dy = (sin(angle)*(float)radius);
-    float scale_factor = (float)radius/std::max(abs(dx),abs(dy));
-    dx *= scale_factor;
-    dy *= scale_factor;
-
-    cv::LineIterator it(img, cv::Point2f(-dx+col,-dy+row),cv::Point2f(dx+col,dy+row));
-
-
-
-    std::vector<std::vector<float>> bins = {{-1,-1},{1,1},{-1,-1,-1,-1,-1},{1,1},{-1,-1}};
-    int n_size = 13;
-    float support = 0.0;
-    int x_offset = -(13-1)/2;
-    for(int i_bin = 0; i_bin<bins.size(); i_bin++)
-    {
-        float inner_support = 0;
-        for(int i_inner = 0; i_inner<bins[i_bin].size(); i_inner++)
-        {
-            //if(bins[i_bin][i_inner]*(img.at<float>(row,col+x_offset)-127.5) > 0.0)
-            if(bins[i_bin][i_inner]*(img.at<float>(it.pos())-127.5) > 0.0)
-            {
-                inner_support++;
-            }
-            x_offset++;
-            it++;
-        }
-        if(inner_support>(bins[i_bin].size()-1)/2)
-            support++;
-    }
-
-    return support;
-}
-
-void thresholdedDistance(const cv::Mat& img_in, cv::Mat& img_out)
+void RailsDetection::thresholdedDistance(const cv::Mat& img_in, cv::Mat& img_out)
 {
 
     img_in.copyTo(img_out);
     img_out.setTo(0);
 
+    ROS_INFO("params %f %f %f %f",gradient_z_min_,gradient_z_max_,gradient_dif_min_,gradient_dif_max_);
     for(unsigned int i_r = 5; i_r < img_in.rows-5; ++i_r)
     {
         for(unsigned int i_c = 5; i_c < img_in.cols-5; ++i_c)
@@ -271,26 +250,38 @@ void thresholdedDistance(const cv::Mat& img_in, cv::Mat& img_out)
                 {
                     if(!(i_x ==0 && i_y == 0))
                     {
-                        float delta = (img_in.at<float>(i_r,i_c)-img_in.at<float>(i_r+i_x,i_c+i_y));
+                        float delta_temp = (img_in.at<float>(i_r,i_c)-img_in.at<float>(i_r+i_x,i_c+i_y));
+                        bool valid_height =  img_in.at<float>(i_r,i_c)> gradient_z_min_ &&  img_in.at<float>(i_r,i_c)< gradient_z_max_ &&img_in.at<float>(i_r+i_x,i_c+i_y)> gradient_z_min_ &&  img_in.at<float>(i_r+i_x,i_c+i_y)< gradient_z_max_;
+                        bool valid_grad =  delta_temp < gradient_dif_max_ && delta_temp > gradient_dif_min_;
+                        float delta = 0.0;
+                        if (valid_height && valid_grad)
+                        {
+                            delta = delta_temp-gradient_dif_min_;
 
-                        if (delta <20.0 && delta >0.0)
-                            delta = 0.0;
+                        }
+                        if(!valid_height)
+                            delta -= 100;
                         img_out.at<float>(i_r,i_c) += delta;
                     }
                 }
             }
+
+            if(img_out.at<float>(i_r,i_c) < 0 )
+                img_out.at<float>(i_r,i_c) = 0;
         }
     }
 }
 
-void computeRailSupport(const cv::Mat& img_in, cv::Mat& img_support, cv::Mat& img_max_orientation)
+void RailsDetection::computeRailSupport(const cv::Mat& img_in, cv::Mat& img_support, cv::Mat& img_max_orientation)
 {
     img_in.copyTo(img_support);
     img_support.setTo(0);
     img_support.copyTo(img_max_orientation);
-    for(unsigned int i_r = 0; i_r < img_in.rows; ++i_r)
+   // std::cout<<img_in<<std::endl;
+    ROS_INFO("Thrsh is: %f",rail_support_feature_thresh_);
+    for(unsigned int i_r = 5; i_r < img_in.rows-5; ++i_r)
     {
-        for(unsigned int i_c = 0; i_c < img_in.cols; ++i_c)
+        for(unsigned int i_c = 5; i_c < img_in.cols-5; ++i_c)
         {
             std::vector<float> supports;
             for(float i_orient = 0.; i_orient<8.; i_orient++)
@@ -299,7 +290,7 @@ void computeRailSupport(const cv::Mat& img_in, cv::Mat& img_support, cv::Mat& im
             int max_orient = std::distance(supports.begin(), support_it);
             float support = *support_it;
 
-            if(support > 4.3)
+            if(support >= rail_support_feature_thresh_)
             {
                 img_support.at<float>(i_r,i_c) =(1.0/(pow(5.0,2)))*support*support;
                 img_max_orientation.at<float>(i_r,i_c) = M_PI*(float)max_orient/8.;
@@ -313,7 +304,7 @@ void computeRailSupport(const cv::Mat& img_in, cv::Mat& img_support, cv::Mat& im
 }
 
 
-void detectBlobs(const cv::Mat& img, std::vector<cv::KeyPoint>& keypoints)
+void RailsDetection::detectBlobs(const cv::Mat& img, std::vector<cv::KeyPoint>& keypoints)
 {
 
     cv::Mat blob_base;
@@ -349,7 +340,7 @@ void detectBlobs(const cv::Mat& img, std::vector<cv::KeyPoint>& keypoints)
     detector.detect( blob_base, keypoints);
 }
 
-float computeBlobOrientation(const cv::Mat& img, cv::KeyPoint keypoint, float radius)
+float RailsDetection::computeBlobOrientation(const cv::Mat& img, cv::KeyPoint keypoint, float radius)
 {
     std::map<float,int> orientations;
     for(int i_x = keypoint.pt.x -radius; i_x <keypoint.pt.x + radius; i_x++)
@@ -383,7 +374,7 @@ float computeBlobOrientation(const cv::Mat& img, cv::KeyPoint keypoint, float ra
     return max_value;
 }
 
-void computeBlobOrientations(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, std::vector<float>& blob_orientations)
+void RailsDetection::computeBlobOrientations(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, std::vector<float>& blob_orientations)
 {
     for(cv::KeyPoint keypoint : keypoints)
     {
@@ -392,7 +383,7 @@ void computeBlobOrientations(const cv::Mat& max_orientations, const std::vector<
 }
 
 
-void fitLineToBlob(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, const std::vector<float>& blob_orientations, std::vector<cv::Vec4f>& lines)
+void RailsDetection::fitLineToBlob(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, const std::vector<float>& blob_orientations, std::vector<cv::Vec4f>& lines)
 {
     cv::Mat img_filtered_orientations;
     max_orientations.copyTo(img_filtered_orientations);
@@ -443,14 +434,19 @@ void fitLineToBlob(const cv::Mat& max_orientations, const std::vector<cv::KeyPoi
 
 }
 
-int detectRails(cv::Mat& cv_img)
+int RailsDetection::detectRails(cv::Mat& cv_img)
 {
-    cv::namedWindow("grid",cv::WINDOW_NORMAL);
-    cv::imshow("grid", cv_img);
+    cv::namedWindow("grid input image",cv::WINDOW_NORMAL);
+    cv::imshow("grid input image", cv_img);
+
 
     cv::Mat grid_diff;
     thresholdedDistance(cv_img,grid_diff);
-    cv::threshold(grid_diff,grid_diff,0.0,255,cv::THRESH_BINARY);
+    // cv::threshold(grid_diff,grid_diff,0.0,255,cv::THRESH_BINARY);
+
+    //cv::Mat grid_diff_vis;
+    cv::normalize(grid_diff,grid_diff,0.0,1.0,cv::NORM_MINMAX);
+
 
     cv::namedWindow("grid_diff",cv::WINDOW_NORMAL);
     cv::imshow("grid_diff", grid_diff);
@@ -458,23 +454,32 @@ int detectRails(cv::Mat& cv_img)
 
     cv::Mat feature_diff;
     cv::Mat max_orientations;
+
     computeRailSupport(grid_diff,feature_diff,max_orientations);
+    cv::normalize(feature_diff,feature_diff,0.0,1.0,cv::NORM_MINMAX);
 
     cv::namedWindow("feature_diff",cv::WINDOW_NORMAL);
     cv::imshow("feature_diff", feature_diff);
-    cv::namedWindow("max_orientations",cv::WINDOW_NORMAL);
-    cv::imshow("max_orientations", max_orientations);
 
-    cv::threshold(feature_diff,feature_diff,0.0,255,cv::THRESH_BINARY);
+   // cv::namedWindow("max_orientations",cv::WINDOW_NORMAL);
+ //   cv::imshow("max_orientations", max_orientations);
+
+
+    cv::normalize(feature_diff,feature_diff,0.0,1.0,cv::NORM_MINMAX);
     int erosion_size = 2;
     cv::Mat element = cv::getStructuringElement( 1,
                                                  cv::Size( 2*erosion_size + 1, 2*erosion_size+1 ),
                                                  cv::Point( erosion_size, erosion_size ) );
     cv::dilate( feature_diff, feature_diff, element );
-    cv::namedWindow("grid_diff_eroded",cv::WINDOW_NORMAL);
-    cv::imshow("grid_diff_eroded", feature_diff);
+ //   cv::namedWindow("grid_diff_eroded",cv::WINDOW_NORMAL);
+ //   cv::imshow("grid_diff_eroded", feature_diff);
 
-    cv::threshold(feature_diff,feature_diff,0.0,255,cv::THRESH_BINARY_INV);
+    cv::threshold(feature_diff,feature_diff,0.0,1,cv::THRESH_BINARY_INV);
+    cv::namedWindow("THRESH_BINARY_INV",cv::WINDOW_NORMAL);
+     cv::imshow("THRESH_BINARY_INV", feature_diff);
+
+     cv::normalize(feature_diff,feature_diff,0.0,255.0,cv::NORM_MINMAX);
+
     cv::Mat converted_feature_diff;
     feature_diff.convertTo(converted_feature_diff,CV_8UC1);
 
@@ -554,7 +559,7 @@ int detectRails(cv::Mat& cv_img)
     cv::namedWindow("detected lines",cv::WINDOW_NORMAL);
     cv::imshow("detected lines", cdst);
 */
-/*
+    /*
     std::vector<cv::Vec4i> linesp;
     cv::HoughLinesP(converted_grid_diff, linesp, 1, M_PI/180, 1, 10, 0 ); // draw lines
     //cv::HoughLinesP(converted_grid_diff, linesp, 1, M_PI/180, 2, 15, 0 ); // draw lines
@@ -576,54 +581,18 @@ int detectRails(cv::Mat& cv_img)
     return 0;
 }
 
-
-}
-
-/*
-int detectRails()
+void RailsDetection::dynamic_recf_cb(hector_rails_detection::HectorRailsDetectionConfig &config, uint32_t level)
 {
-
-    /*octomap_cv_interface::OctomapCvInterface test;
-
-    //test.fromFile("/home/kohlbrecher/logs/argos/obstacles/elevated_1.ot");
-    //test.fromFile("/home/kohlbrecher/logs/argos/obstacles/taurob_near_stairs.ot");
-    test.fromFile("/home/kevin/Downloads/octo_1.ot");
-    test.printInfo();
-
-    cv::Mat cv_img;
-    cv::Mat free_map;
-    test.retrieveHeightMap(cv_img, free_map);
-    double max = cv_img.at<float>(0,0);
-    for(int i = 0; i < cv_img.rows; i++)
-    {
-        for(int j = 0; j < cv_img.cols; j++)
-        {
-            float val = cv_img.at<float>(i,j);
-            if(val > max)
-                max = val;
-
-        }
-    }
-
-    for(int i = 0; i < cv_img.rows; i++)
-    {
-        for(int j = 0; j < cv_img.cols; j++)
-        {
-            float val = cv_img.at<float>(i,j);
-            cv_img.at<float>(i,j) = val*255.0/max;
-            if(cv_img.at<float>(i,j)<0) cv_img.at<float>(i,j) = 0;
-        }
-    }
-
-    cv::imwrite( "/home/kevin/Downloads/Gray_Image.png", cv_img);
-
-    detectRails(cv_img);
-*/
-/*
-    return 0;
+    ROS_INFO("dynamic reconf");
+    gradient_z_min_= config.gradient_z_min;
+    gradient_z_max_= config.gradient_z_max;
+    gradient_dif_min_= config.gradient_dif_min;
+    gradient_dif_max_= config.gradient_dif_max;
+    rail_support_feature_thresh_ = config.rail_support_feature_thresh;
+    rail_support_feature_section_thresh_ = config.rail_support_feature_section_thresh;
 }
 
-
+}
 
 /*
 int main(int argc, char **argv)

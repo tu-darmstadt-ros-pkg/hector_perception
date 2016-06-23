@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<launch>
+<node name="hector_rails_detection_node" pkg="hector_rails_detection" type="hector_rails_detection_node" respawn="true" output="screen"/>
+<rosparam file="$(find hector_rails_detection)/config/params.yaml" />
+</launch>
