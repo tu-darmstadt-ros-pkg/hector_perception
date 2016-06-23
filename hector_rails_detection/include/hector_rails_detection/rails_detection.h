@@ -38,7 +38,7 @@ private:
     void detectBlobs(const cv::Mat& img, std::vector<cv::KeyPoint>& keypoints);
     float computeBlobOrientation(const cv::Mat& img, cv::KeyPoint keypoint, float radius);
     void computeBlobOrientations(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, std::vector<float>& blob_orientations);
-    void fitLineToBlob(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, const std::vector<float>& blob_orientations, std::vector<cv::Vec4f>& lines);
+    void fitLineToBlob(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, const std::vector<float>& blob_orientations,  std::vector<std::pair<cv::Point2i,cv::Point2i>>& lines);
     int detectRails(cv::Mat& cv_img);
 
 
