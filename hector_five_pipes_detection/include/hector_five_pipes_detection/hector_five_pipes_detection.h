@@ -38,6 +38,8 @@
 #include <actionlib/server/simple_action_server.h>
 #include <hector_perception_msgs/DetectObjectAction.h>
 
+#include <hector_worldmodel_msgs/PosePercept.h>
+
 namespace hector_five_pipes_detection{
 
 class HectorFivePipesDetection{
@@ -55,6 +57,7 @@ protected:
     ros::Publisher cloud_filtered_publisher_;
     ros::Publisher cluster_pub_debug_;
     ros::Publisher five_pipes_pos_pub_;
+    ros::Publisher posePercept_pub_;
 
     ros::Subscriber pointcloud_sub_;
     ros::ServiceClient pointcloud_srv_client_;

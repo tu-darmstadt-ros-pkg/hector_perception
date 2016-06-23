@@ -39,6 +39,8 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
 
     //pointcloud_sub_ = nh.subscribe("/worldmodel_main/pointcloud_vis", 10, &HectorFivePipesDetection::PclCallback, this);
 
+    posePercept_pub_= nh.advertise<hector_worldmodel_msgs::PosePercept>       ("/worldmodel/pose_percept", 0);
+
     ros::NodeHandle pnh("~");
     detection_object_server_.reset(new actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction>(pnh, "detect", boost::bind(&HectorFivePipesDetection::executeCallback, this, _1) ,false));
     detection_object_server_->start();
@@ -51,20 +53,28 @@ HectorFivePipesDetection::~HectorFivePipesDetection()
 void HectorFivePipesDetection::executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal)
 {
 
-  hector_perception_msgs::DetectObjectResult result;
+    hector_perception_msgs::DetectObjectResult result;
 
 
-  // Do stuff and set result appropriately  
-  result.detection_success = findPipes(goal->detect_request.roi_hint.bounding_box_min, goal->detect_request.roi_hint.bounding_box_max, goal->detect_request.roi_hint.header.frame_id);
+    // Do stuff and set result appropriately
+    result.detection_success = findPipes(goal->detect_request.roi_hint.bounding_box_min, goal->detect_request.roi_hint.bounding_box_max, goal->detect_request.roi_hint.header.frame_id);
 
-  detection_object_server_->setSucceeded(result);
+    detection_object_server_->setSucceeded(result);
 }
 
 bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const geometry_msgs::Point& max, const std::string& frame_id)
 {
-// maybe better as service
-// pointcloud from laserscan/ region of intereset in front of the robot ???
-//void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg){
+    // maybe better as service
+    // pointcloud from laserscan/ region of intereset in front of the robot ???
+    //void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg){
+
+    std::cout<<"frame: "<< frame_id<<std::endl;
+    ROS_INFO("min x: %f", min.x);
+    ROS_INFO("min y: %f", min.y);
+    ROS_INFO("min z: %f", min.z);
+    ROS_INFO("max x: %f", max.x);
+    ROS_INFO("max y: %f", max.y);
+    ROS_INFO("max z: %f", max.z);
 
     bool success = false;
 
@@ -74,14 +84,25 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     pointcloud_srv_client_ = n.serviceClient<vigir_perception_msgs::PointCloudRegionRequest>("/worldmodel_main/pointcloud_roi");
     vigir_perception_msgs::PointCloudRegionRequest srv;
     vigir_perception_msgs::EnvironmentRegionRequest erreq;
-    erreq.header.frame_id=worldFrame_;
-    //TODO::bouding box parameter from action
-    erreq.bounding_box_max.x=10;
-    erreq.bounding_box_max.y=10;
-    erreq.bounding_box_max.z=passThroughZMax_;
-    erreq.bounding_box_min.x=-10;
-    erreq.bounding_box_min.y=-10;
-    erreq.bounding_box_min.z=passThroughZMin_;
+    if(min.x != max.x && min.y != max.y && min.z != max.z && frame_id.empty()){
+        //bouding box parameter from action
+        erreq.header.frame_id=frame_id;
+        erreq.bounding_box_max.x=max.x;
+        erreq.bounding_box_max.y=max.y;
+        erreq.bounding_box_max.z=max.z;
+        erreq.bounding_box_min.x=min.x;
+        erreq.bounding_box_min.y=min.y;
+        erreq.bounding_box_min.z=min.z;
+    }else{
+        //default parameter
+        erreq.header.frame_id=worldFrame_;
+        erreq.bounding_box_max.x=10;
+        erreq.bounding_box_max.y=10;
+        erreq.bounding_box_max.z=passThroughZMax_;
+        erreq.bounding_box_min.x=-10;
+        erreq.bounding_box_min.y=-10;
+        erreq.bounding_box_min.z=passThroughZMin_;
+    }
     erreq.resolution=0;  //0 <=> default
     erreq.request_augment=0;
     srv.request.region_req=erreq;
@@ -89,6 +110,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 
     if(!pointcloud_srv_client_.call(srv)){
         ROS_ERROR("service: /worldmodel/pointcloud_roi is not working");
+        return success;
     }else{
         sensor_msgs::PointCloud2 pointCloud_world;
         pointCloud_world=srv.response.cloud;
@@ -214,9 +236,41 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 
         if ( kdtree.radiusSearch (searchPoint, searchRadius_, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 4 )
         {
+            pcl::PointXYZ centerPoint;
+            centerPoint.x=0;
+            centerPoint.y=0;
+            centerPoint.z=0;
             ROS_DEBUG("more than 4 centers in radius => start check positions found");
+            pcl::PointXYZ p;
             for (size_t i = 0; i < pointIdxRadiusSearch.size (); ++i)
-                start_check_positions->points.push_back(cloud_cluster_centers->points[ pointIdxRadiusSearch[i] ]);
+            {
+                p=cloud_cluster_centers->points[ pointIdxRadiusSearch[i] ];
+                start_check_positions->points.push_back(p);
+                centerPoint.x= centerPoint.x + p.x;
+                centerPoint.y= centerPoint.y + p.y;
+                centerPoint.z= centerPoint.z + p.z;
+            }
+
+            centerPoint.x= centerPoint.x / pointIdxRadiusSearch.size ();
+            centerPoint.y= centerPoint.y / pointIdxRadiusSearch.size ();
+            centerPoint.z= centerPoint.z / pointIdxRadiusSearch.size ();
+
+            //publish center to worldmodel
+            hector_worldmodel_msgs::PosePercept pp;
+
+            pp.header.frame_id= start_check_positions->header.frame_id;
+            pp.header.stamp= srv.response.cloud.header.stamp;
+            pp.info.class_id= "start_check_pipe";
+            pp.info.class_support=1;
+            pp.info.object_support=1;
+            pp.pose.pose.position.x= centerPoint.x;
+            pp.pose.pose.position.y= centerPoint.y;
+            pp.pose.pose.position.z= centerPoint.z;
+            pp.pose.pose.orientation.x= pp.pose.pose.orientation.y = pp.pose.pose.orientation.z= 0;
+            pp.pose.pose.orientation.w= 1;
+
+            posePercept_pub_.publish(pp);
+            ROS_INFO("PosePercept startcheck postion pipes published");
 
             success = true;
         }
