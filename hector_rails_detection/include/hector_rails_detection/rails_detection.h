@@ -12,6 +12,7 @@
 #include <grid_map_core/grid_map_core.hpp>
 #include <dynamic_reconfigure/server.h>
 #include <hector_rails_detection/HectorRailsDetectionConfig.h>
+#include <visualization_msgs/Marker.h>
 
 namespace hector_rails_detection{
 
@@ -43,6 +44,7 @@ private:
 
 
     ros::Subscriber elevation_map_subscriber_;
+    ros::Publisher marker_publisher_;
     boost::shared_ptr<actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction> > detection_object_server_;
     grid_map::GridMap grid_map_;
     float max_height_;
