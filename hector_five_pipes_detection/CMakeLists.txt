@@ -13,6 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   hector_perception_msgs
   dynamic_reconfigure
+  hector_worldmodel_msgs
 )
 
 generate_dynamic_reconfigure_options(config/HectorFivePipesConfig.cfg)
