@@ -36,6 +36,7 @@
 #include <grid_map_core/grid_map_core.hpp>
 
 #include <grid_map_ros/GridMapRosConverter.hpp>
+
 namespace hector_rails_detection
 {
 RailsDetection::RailsDetection()
@@ -90,11 +91,11 @@ void RailsDetection::elevationMapCallback(const grid_map_msgs::GridMap& grid_map
     max_height_ = 1.;
     min_height_ = 0.;
 
-    if(!is_init)
+    if(!is_init || true)
     {
-        ROS_INFO("map callback");
+        //ROS_INFO("map callback");
         grid_map::GridMapRosConverter::fromMessage(grid_map_msg, grid_map_);
-        ROS_INFO("max %f min %f", max_height_, min_height_);
+        //ROS_INFO("max %f min %f", max_height_, min_height_);
         is_init = true;
     }
 
@@ -138,7 +139,7 @@ void RailsDetection::executeCallback(const hector_perception_msgs::DetectObjectG
         }
     }
 
-    detectRails(image);
+    detectRailsRectangle(image);
     detection_object_server_->setSucceeded(result);
 }
 
@@ -169,17 +170,18 @@ std::string RailsDetection::type2str(int type) {
     return r;
 }
 
-float RailsDetection::computeRailSupportGeneric(const cv::Mat& img, int row, int col, float angle = 0.0)
+float RailsDetection::computeRailSupportGeneric(const cv::Mat& img, int row, int col, float angle = 0.0, float resolution)
 {
 
     //angle = 3.14/2.0;
     std::vector<section> sections;
+    float r = resolution;
 
-    sections.push_back(std::vector<float>{-6.5,-4.5,-1.0});
-    sections.push_back(std::vector<float>{-4.0,-2.0,1.0});
-    sections.push_back(std::vector<float>{-2.0,2.0,-1.0});
-    sections.push_back(std::vector<float>{2.5,4.5,1.0});
-    sections.push_back(std::vector<float>{4.5,6.5,-1.0});
+    sections.push_back(std::vector<float>{-0.45f/r,-0.25f/r,-1.0});
+    sections.push_back(std::vector<float>{-0.35f/r,-0.15f/r,1.0});
+    sections.push_back(std::vector<float>{-0.25f/r,0.25f/r,-1.0});
+    sections.push_back(std::vector<float>{0.15f/r,0.35f/r,1.0});
+    sections.push_back(std::vector<float>{0.25f/r,0.45f/r,-1.0});
 
 
     float support = 0.;
@@ -218,16 +220,16 @@ float RailsDetection::computeRailSupportGeneric(const cv::Mat& img, int row, int
     return support;
 }
 
-float RailsDetection::computeRailSupportMultiple(const cv::Mat& img, int row, int col, float angle = 0.0)
+float RailsDetection::computeRailSupportMultiple(const cv::Mat& img, int row, int col, float angle = 0.0, float resolution)
 {
-    float support0 = computeRailSupportGeneric(img, row, col, angle);
+    float support0 = computeRailSupportGeneric(img, row, col, angle, resolution);
 
     int dx0 = round(cos(angle+M_PI_2)*1.4);
     int dy0 = round(sin(angle+M_PI_2)*1.4);
     // std::cout<<"angle "<<angle<<" "<<dx0<<" "<<dy0<<std::endl;
 
-    float support1 = computeRailSupportGeneric(img, row+dy0, col+dx0, angle);
-    float support2 = computeRailSupportGeneric(img, row-dy0, col-dx0, angle);
+    float support1 = computeRailSupportGeneric(img, row+dy0, col+dx0, angle, resolution);
+    float support2 = computeRailSupportGeneric(img, row-dy0, col-dx0, angle, resolution);
 
     return (2.0*support0+support1+support2)/4.0;
 
@@ -371,7 +373,7 @@ float RailsDetection::computeBlobOrientation(const cv::Mat& img, cv::KeyPoint ke
         }
     }
 
-    //std::cout <<" max value " << max_value << std::endl;
+    //std::cout <<" max blobl orient value " << max_value << std::endl;
     return max_value;
 }
 
@@ -439,8 +441,11 @@ void RailsDetection::fitLineToBlob(const cv::Mat& max_orientations, const std::v
 
 }
 
+#define DEBUG
 int RailsDetection::detectRails(cv::Mat& cv_img)
 {
+
+    cv::medianBlur(cv_img,cv_img,3);
 #ifdef DEBUG
     cv::namedWindow("grid input image",cv::WINDOW_NORMAL);
     cv::imshow("grid input image", cv_img);
@@ -454,15 +459,16 @@ int RailsDetection::detectRails(cv::Mat& cv_img)
     cv::normalize(grid_diff,grid_diff,0.0,1.0,cv::NORM_MINMAX);
 
 
+
+
+    //  cv::Mat grid_diff_smooth;
+    // cv::medianBlur(grid_diff,grid_diff,3);
+    // cv::namedWindow("grid_diff_smooth",cv::WINDOW_NORMAL);
+    // cv::imshow("grid_diff_smooth", grid_diff_smooth);
 #ifdef DEBUG
     cv::namedWindow("grid_diff",cv::WINDOW_NORMAL);
     cv::imshow("grid_diff", grid_diff);
 #endif
-
-    //  cv::Mat grid_diff_smooth;
-    cv::medianBlur(grid_diff,grid_diff,3);
-    // cv::namedWindow("grid_diff_smooth",cv::WINDOW_NORMAL);
-    // cv::imshow("grid_diff_smooth", grid_diff_smooth);
 
 
     cv::Mat feature_diff;
@@ -523,6 +529,10 @@ int RailsDetection::detectRails(cv::Mat& cv_img)
         cv::circle(converted_grid, keypoint.pt, keypoint.size ,cv::Scalar(255));
     }
 
+
+
+
+    /*
     std::vector<float> blob_orientations;
     computeBlobOrientations(max_orientations, keypoints, blob_orientations);
     std::vector<std::pair<cv::Point2i,cv::Point2i>> lines;
@@ -550,9 +560,9 @@ int RailsDetection::detectRails(cv::Mat& cv_img)
     line_list.header.frame_id = "/map";
     line_list.id = 2;
     line_list.type = visualization_msgs::Marker::LINE_LIST;
-    line_list.scale.x = 0.1;
-    line_list.scale.y = 0.1;
-    line_list.scale.z = 0.1;
+    line_list.scale.x = 0.01;
+    line_list.scale.y = 0.01;
+    line_list.scale.z = 0.01;
 
     // Line list is red
     line_list.color.r = 1.0;
@@ -565,7 +575,6 @@ int RailsDetection::detectRails(cv::Mat& cv_img)
     line_list.points.push_back(p);
     p.z += 1.0;
     line_list.points.push_back(p);
-*/
 
     ROS_INFO("length %f %f pose %f %f",grid_map_.getLength()[0],grid_map_.getLength()[1],grid_map_.getPosition()[0],grid_map_.getPosition()[1]);
     ROS_INFO("res %f ",grid_map_.getResolution());
@@ -580,6 +589,7 @@ int RailsDetection::detectRails(cv::Mat& cv_img)
         cv::line(final_image, line.first, line.second, cv::Scalar(255));
         p.x = pos_x-res*(float)(line.first.y-final_image.size[0]*0.5);
         p.y = pos_y-res*(float)(line.first.x-final_image.size[1]*0.5);
+        p.z = 0.1;
         line_list.points.push_back(p);
         p.x = pos_x-res*(float)(line.second.y-final_image.size[0]*0.5);
         p.y = pos_y-res*(float)(line.second.x-final_image.size[1]*0.5);
@@ -593,6 +603,9 @@ int RailsDetection::detectRails(cv::Mat& cv_img)
     cv::namedWindow("final_image", cv::WINDOW_NORMAL);
     cv::imshow("final_image", final_image );
 //#endif
+   */
+
+
     /*
     std::vector<cv::Vec2f> lines;
     cv::HoughLines(converted_grid_diff, lines, 2, M_PI/180, 70, 0, 0 ); // draw lines
@@ -641,6 +654,396 @@ int RailsDetection::detectRails(cv::Mat& cv_img)
 
     cv::waitKey(0);
     return 0;
+}
+
+int RailsDetection::detectRailsRectangle(cv::Mat& cv_img)
+{
+
+    cv::medianBlur(cv_img,cv_img,3);
+#ifdef DEBUG
+    cv::namedWindow("grid input image",cv::WINDOW_NORMAL);
+    cv::imshow("grid input image", cv_img);
+#endif
+
+    cv::Mat grid_diff;
+    thresholdedDistance(cv_img,grid_diff);
+    cv::normalize(grid_diff,grid_diff,0.0,1.0,cv::NORM_MINMAX);
+#ifdef DEBUG
+    cv::namedWindow("grid_diff",cv::WINDOW_NORMAL);
+    cv::imshow("grid_diff", grid_diff);
+#endif
+
+    cv::Mat feature_diff;
+    cv::Mat max_orientations;
+
+    computeRailSupport(grid_diff,feature_diff,max_orientations);
+
+    cv::normalize(feature_diff,feature_diff,0.0,1.0,cv::NORM_MINMAX);
+
+#ifdef DEBUG
+    cv::namedWindow("feature_diff",cv::WINDOW_NORMAL);
+    cv::imshow("feature_diff", feature_diff);
+#endif
+
+    cv::normalize(feature_diff,feature_diff,0.0,1.0,cv::NORM_MINMAX);
+    int erosion_size = 2;
+    cv::Mat element_dilate = cv::getStructuringElement( 1,
+                                                        cv::Size( 2*erosion_size + 1, 2*erosion_size+1 ),
+                                                        cv::Point( erosion_size, erosion_size ) );
+    cv::dilate( feature_diff, feature_diff, element_dilate );
+
+    cv::threshold(feature_diff,feature_diff,0.0,1.0,cv::THRESH_BINARY_INV);
+
+    cv::normalize(feature_diff,feature_diff,0.0,255.0,cv::NORM_MINMAX);
+    cv::Mat converted_feature_diff;
+    feature_diff.convertTo(converted_feature_diff,CV_8UC1);
+
+    std::vector<cv::KeyPoint> keypoints;
+    detectBlobs(feature_diff,keypoints);
+    cv::Mat im_with_keypoints;
+    std::cout<<"n_blobs:"<<keypoints.size()<<std::endl;
+    cv::drawKeypoints( converted_feature_diff, keypoints, im_with_keypoints, cv::Scalar(0,0,255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS );
+
+#ifdef DEBUG
+    cv::namedWindow("keypoints", cv::WINDOW_NORMAL);
+    cv::imshow("keypoints", im_with_keypoints );
+#endif
+
+    cv::normalize(cv_img,cv_img,0.0,255.0,cv::NORM_MINMAX);
+    cv::Mat converted_grid;
+    cv_img.convertTo(converted_grid,CV_8UC1);
+    cv::drawKeypoints( converted_grid, keypoints, im_with_keypoints, cv::Scalar(0,0,255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS );
+
+#ifdef DEBUG
+    cv::namedWindow("keypoints2", cv::WINDOW_NORMAL);
+    cv::imshow("keypoints2", im_with_keypoints );
+#endif
+
+    for(cv::KeyPoint keypoint : keypoints)
+    {
+        cv::circle(converted_grid, keypoint.pt, keypoint.size ,cv::Scalar(255));
+    }
+
+
+    std::vector<float> blob_orientations;
+    computeBlobOrientations(max_orientations, keypoints, blob_orientations);
+
+    cv::Mat feature_rec;
+    std::vector<std::pair<cv::Point2i,cv::Point2i>> detected_rails;
+    detectRectangle(grid_diff,feature_rec,0.5,2.4,0.0,keypoints, blob_orientations, detected_rails);
+
+
+    visualization_msgs::Marker line_list;
+    line_list.header.frame_id = "/map";
+
+    line_list.id = 2;
+    line_list.type = visualization_msgs::Marker::LINE_LIST;
+    line_list.scale.x = 0.01;
+    line_list.scale.y = 0.01;
+    line_list.scale.z = 0.01;
+
+    // Line list is red
+    line_list.color.r = 1.0;
+    line_list.color.a = 1.0;
+
+    cv::Mat final_image_grey;
+    cv_img.copyTo(final_image_grey);
+
+#ifdef DEBUG
+    cv::namedWindow("final_image_grey", cv::WINDOW_NORMAL);
+    cv::imshow("final_image_grey", final_image_grey );
+#endif
+
+    cv::Mat final_image;
+    cv::normalize(final_image_grey,final_image_grey,0.0,255,cv::NORM_MINMAX);
+    final_image_grey.convertTo(final_image, CV_8UC1);
+
+    geometry_msgs::Point p;
+    p.z = 0.1;
+
+    float res = grid_map_.getResolution();
+    float pos_x = grid_map_.getPosition()[0];
+    float pos_y = grid_map_.getPosition()[1];
+
+    cv::Mat detected_lines;
+    cv_img.copyTo(detected_lines);
+
+    cv::normalize(detected_lines,detected_lines,0.0,0.3,cv::NORM_MINMAX);
+    for(std::pair<cv::Point2i,cv::Point2i> line : detected_rails)
+    {
+        cv::line(final_image, line.first, line.second, cv::Scalar(255));
+        p.x = pos_x-res*(float)(line.first.y-final_image.size[0]*0.5);
+        p.y = pos_y-res*(float)(line.first.x-final_image.size[1]*0.5);
+        p.z = 0.1;
+        line_list.points.push_back(p);
+        p.x = pos_x-res*(float)(line.second.y-final_image.size[0]*0.5);
+        p.y = pos_y-res*(float)(line.second.x-final_image.size[1]*0.5);
+        line_list.points.push_back(p);
+
+        cv::line(detected_lines, line.first, line.second, cv::Scalar(1), 1, CV_AA);
+        ROS_INFO("line p1 %i %i",line.first.x, line.first.y);
+    }
+
+    marker_publisher_.publish(line_list);
+    cv::normalize(feature_rec,feature_rec,0.0,1.0,cv::NORM_MINMAX);
+
+#ifdef DEBUG
+    cv::namedWindow("feature_rec",cv::WINDOW_NORMAL);
+    cv::imshow("feature_rec", feature_rec);
+    cv::namedWindow("detected_lines",cv::WINDOW_NORMAL);
+    cv::imshow("detected_lines", detected_lines);
+#endif
+
+    /*
+    std::vector<float> blob_orientations;
+    computeBlobOrientations(max_orientations, keypoints, blob_orientations);
+    std::vector<std::pair<cv::Point2i,cv::Point2i>> lines;
+    fitLineToBlob(max_orientations, keypoints, blob_orientations, lines);
+
+#ifdef DEBUG
+    cv::namedWindow("converted_grid", cv::WINDOW_NORMAL);
+    cv::imshow("converted_grid", converted_grid );
+#endif
+
+    cv::Mat final_image_grey;
+    cv_img.copyTo(final_image_grey);
+
+#ifdef DEBUG
+    cv::namedWindow("final_image_grey", cv::WINDOW_NORMAL);
+    cv::imshow("final_image_grey", final_image_grey );
+#endif
+
+    cv::Mat final_image;
+    cv::normalize(final_image_grey,final_image_grey,0.0,255,cv::NORM_MINMAX);
+    final_image_grey.convertTo(final_image, CV_8UC1);
+
+
+    visualization_msgs::Marker line_list;
+    line_list.header.frame_id = "/map";
+    line_list.id = 2;
+    line_list.type = visualization_msgs::Marker::LINE_LIST;
+    line_list.scale.x = 0.01;
+    line_list.scale.y = 0.01;
+    line_list.scale.z = 0.01;
+
+    // Line list is red
+    line_list.color.r = 1.0;
+    line_list.color.a = 1.0;
+
+    geometry_msgs::Point p;
+    /*p.x = 0.0;
+    p.y = 0.0;
+    p.z = 0.0;
+    line_list.points.push_back(p);
+    p.z += 1.0;
+    line_list.points.push_back(p);
+
+    ROS_INFO("length %f %f pose %f %f",grid_map_.getLength()[0],grid_map_.getLength()[1],grid_map_.getPosition()[0],grid_map_.getPosition()[1]);
+    ROS_INFO("res %f ",grid_map_.getResolution());
+
+    float res = grid_map_.getResolution();
+    float pos_x = grid_map_.getPosition()[0];
+    float pos_y = grid_map_.getPosition()[1];
+    for(std::pair<cv::Point2i,cv::Point2i> line : lines)
+    {
+        //  cv::Point2i p1(line[2]+12*line[0],line[3]+12*line[1]);
+        //  cv::Point2i p2(line[2]-12*line[0],line[3]-12*line[1]);
+        cv::line(final_image, line.first, line.second, cv::Scalar(255));
+        p.x = pos_x-res*(float)(line.first.y-final_image.size[0]*0.5);
+        p.y = pos_y-res*(float)(line.first.x-final_image.size[1]*0.5);
+        p.z = 0.1;
+        line_list.points.push_back(p);
+        p.x = pos_x-res*(float)(line.second.y-final_image.size[0]*0.5);
+        p.y = pos_y-res*(float)(line.second.x-final_image.size[1]*0.5);
+        line_list.points.push_back(p);
+
+    }
+
+    marker_publisher_.publish(line_list);
+
+//#ifdef DEBUG
+    cv::namedWindow("final_image", cv::WINDOW_NORMAL);
+    cv::imshow("final_image", final_image );
+//#endif
+   */
+
+
+    /*
+    std::vector<cv::Vec2f> lines;
+    cv::HoughLines(converted_grid_diff, lines, 2, M_PI/180, 70, 0, 0 ); // draw lines
+    //cv::HoughLines(converted_grid_diff, lines, 2, M_PI/180, 30, 0, 0 ); // draw lines
+    cv::Mat cdst(cv_img.rows,cv_img.cols, CV_32FC1, cv::Scalar(0));
+
+
+    for( size_t i = 0; i < lines.size(); i++ )
+    {
+        float rho = lines[i][0], theta = lines[i][1];
+        cv::Point pt1, pt2;
+        double a = cos(theta), b = sin(theta);
+        double x0 = a*rho, y0 = b*rho;
+        pt1.x = (x0 + 1000*(-b));
+        pt1.y = (y0 + 1000*(a));
+        pt2.x = (x0 - 1000*(-b));
+        pt2.y = (y0 - 1000*(a));
+        cv::line( cdst, pt1, pt2, cv::Scalar(1), 1, CV_AA);
+
+        std::cout<<"line:"<<pt1<<" "<<pt2<<std::endl;
+    }
+
+    // cv::imshow("source", src);
+    cv::namedWindow("detected lines",cv::WINDOW_NORMAL);
+    cv::imshow("detected lines", cdst);
+*/
+    /*
+    std::vector<cv::Vec4i> linesp;
+    cv::HoughLinesP(converted_grid, linesp, 1, M_PI/180, 1, 10, 0 ); // draw lines
+    //cv::HoughLinesP(converted_grid_diff, linesp, 1, M_PI/180, 2, 15, 0 ); // draw lines
+    cv::Mat cdstp(cv_img.rows,cv_img.cols, CV_32FC1, cv::Scalar(0));
+
+
+    std::cout<<"detected "<<linesp.size()+1<<" lines"<<std::endl;
+    for (size_t i = 0; i < linesp.size(); ++i)
+    {
+        cv::Vec4i l = linesp[i];
+        cv::line(cdstp, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(1), 1, CV_AA);
+    }
+
+    cv::namedWindow("detected linesp",cv::WINDOW_NORMAL);
+    cv::imshow("detected linesp", cdstp);
+
+*/
+
+
+    cv::waitKey(0);
+    return 0;
+}
+
+void rotatePoint(cv::Point2f& p, cv::Point2f c, float a)
+{
+    float x = (p.x-c.x)*cos(a) -(p.y-c.y)*sin(a) + c.x;
+    float y = (p.x-c.x)*sin(a) +(p.y-c.y)*cos(a) + c.y;
+    p.x = x;
+    p.y = y;
+}
+void RailsDetection::detectRectangle(const cv::Mat& img_in, cv::Mat& img_support, float width, float length, float angle, const std::vector<cv::KeyPoint>& keypoints, const std::vector<float>& blob_orientations, std::vector<std::pair<cv::Point2i,cv::Point2i>>& rails)
+{
+
+    img_in.copyTo(img_support);
+    img_support.setTo(0);
+    float w = width/0.05;
+    float l = length/0.05;
+    int i_key = 0;
+    cv::Point2f p_zero(0,0);
+    for(cv::KeyPoint key : keypoints)
+    {
+        float orientation = blob_orientations[i_key];
+        int radius = 2.*key.size;
+
+
+        cv::Point2f p1_l(-0.5*w,-0.5*l);
+        cv::Point2f p2_l(-0.5*w, 0.5*l);
+        cv::Point2f p3_l( 0.5*w,-0.5*l);
+        cv::Point2f p4_l( 0.5*w, 0.5*l);
+        rotatePoint(p1_l,p_zero, orientation);
+        rotatePoint(p2_l,p_zero, orientation);
+        rotatePoint(p3_l,p_zero, orientation);
+        rotatePoint(p4_l,p_zero, orientation);
+
+        ROS_INFO("angle %f",key.angle);
+
+        unsigned int i_r_min = key.pt.y-radius > 0 ?  key.pt.y-radius: 0 ;
+        unsigned int i_r_max = key.pt.y+radius < img_in.cols ?  key.pt.y+radius: img_in.cols ;
+        unsigned int i_c_min = key.pt.x-radius > 0 ?  key.pt.x-radius: 0 ;
+        unsigned int i_c_max = key.pt.x+radius < img_in.cols ?  key.pt.x+radius: img_in.cols;
+        float max_support = 0;
+        cv::Point2i max_point;
+
+        cv::Point2f p1_max;
+        cv::Point2f p2_max;
+        cv::Point2f p3_max;
+        cv::Point2f p4_max;
+
+        for(unsigned int i_r = i_r_min; i_r < i_r_max; ++i_r)
+        {
+            for(unsigned int i_c = i_c_min; i_c < i_c_max; ++i_c)
+            {
+                float support = 0;
+
+
+                cv::Point2f p1(i_c,i_r);
+                cv::Point2f p2(i_c,i_r);
+                cv::Point2f p3(i_c,i_r);
+                cv::Point2f p4(i_c,i_r);
+                p1 += p1_l;
+                p2 += p2_l;
+                p3 += p3_l;
+                p4 += p4_l;
+                cv::LineIterator line_it(img_in, p1, p2);
+                for(int i_it = 0; i_it<line_it.count; i_it++)
+                {
+                    line_it++;
+                    float res = img_in.at<float>(line_it.pos());
+                    if(res > 0.1)
+                        res = 0.1;
+                    support += res;
+                }
+                line_it =cv::LineIterator(img_in, p3, p4);
+                for(int i_it = 0; i_it<line_it.count; i_it++)
+                {
+                    line_it++;
+                    float res = img_in.at<float>(line_it.pos());
+                    if(res > 0.1)
+                        res = 0.1;
+                    support += res;
+                }
+                if(support > max_support)
+                {
+                    max_support = support;
+                    max_point.y = i_r;
+                    max_point.x = i_c;
+                    p1_max = p1;
+                    p2_max = p2;
+                    p3_max = p3;
+                    p4_max = p4;
+                }
+                img_support.at<float>(i_r,i_c) = support*support*support;
+            }
+        }
+        /*
+        for(unsigned int i_r = i_r_min; i_r < i_r_max; ++i_r)
+        {
+            for(unsigned int i_c = i_c_min; i_c < i_c_max; ++i_c)
+            {
+                float support = 0;
+                for(unsigned int i_w = 0; i_w < 2; ++i_w)
+                {
+                    for(unsigned int i_l = 0; i_l < l; ++i_l)
+                    {
+                        float res = img_in.at<float>(i_r+i_w*w-0.5*w,i_c+i_l-0.5*l);
+                        if (res > 0.1) res = 0.1;
+                        support += res;
+                    }
+                }
+                if(support > max_support)
+                {
+                    max_support = support;
+                    max_point.y = i_r;
+                    max_point.x = i_c;
+                }
+                img_support.at<float>(i_r,i_c) = support*support*support;
+            }
+        }
+        */
+        std::pair<cv::Point2i,cv::Point2i> p12;
+        p12.first = p1_max;
+        p12.second = p2_max;
+        std::pair<cv::Point2i,cv::Point2i> p34;
+        p34.first = p3_max;
+        p34.second = p4_max;
+        rails.push_back(p12);
+        rails.push_back(p34);
+
+    }
 }
 
 void RailsDetection::dynamic_recf_cb(hector_rails_detection::HectorRailsDetectionConfig &config, uint32_t level)

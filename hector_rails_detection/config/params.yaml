@@ -3,4 +3,4 @@ gradient_z_max: 0.15
 gradient_dif_min : 0.01
 gradient_dif_max : 0.2
 rail_support_feature_thresh : 4.1
-rail_support_feature_section_thresh : 0.1
+rail_support_feature_section_thresh : 0.5

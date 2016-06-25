@@ -30,8 +30,8 @@ public:
 
 private:
     std::string type2str(int type) ;
-    float computeRailSupportGeneric(const cv::Mat& img, int row, int col, float angle);
-    float computeRailSupportMultiple(const cv::Mat& img, int row, int col, float angle);
+    float computeRailSupportGeneric(const cv::Mat& img, int row, int col, float angle, float resolution = 0.05);
+    float computeRailSupportMultiple(const cv::Mat& img, int row, int col, float angle, float resolution = 0.05);
     float computeRailSupport(const cv::Mat& img, int row, int col, float angle);
 
     void thresholdedDistance(const cv::Mat& img_in, cv::Mat& img_out);
@@ -41,6 +41,8 @@ private:
     void computeBlobOrientations(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, std::vector<float>& blob_orientations);
     void fitLineToBlob(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, const std::vector<float>& blob_orientations,  std::vector<std::pair<cv::Point2i,cv::Point2i>>& lines);
     int detectRails(cv::Mat& cv_img);
+    int detectRailsRectangle(cv::Mat& cv_img);
+    void detectRectangle(const cv::Mat& img_in, cv::Mat& img_support, float width, float length, float angle, const std::vector<cv::KeyPoint>&  keypoints, const std::vector<float>& blob_orientations, std::vector<std::pair<cv::Point2i,cv::Point2i>>& rails);
 
 
     ros::Subscriber elevation_map_subscriber_;
