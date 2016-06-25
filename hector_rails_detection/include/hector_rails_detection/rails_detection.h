@@ -38,6 +38,8 @@ private:
     void computeRailSupport(const cv::Mat& img_in, cv::Mat& img_support, cv::Mat& img_max_orientation);
     void detectBlobs(const cv::Mat& img, std::vector<cv::KeyPoint>& keypoints);
     float computeBlobOrientation(const cv::Mat& img, cv::KeyPoint keypoint, float radius);
+    float computeBlobOrientationPCA(const cv::Mat& img, cv::KeyPoint keypoint, float radius);
+
     void computeBlobOrientations(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, std::vector<float>& blob_orientations);
     void fitLineToBlob(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, const std::vector<float>& blob_orientations,  std::vector<std::pair<cv::Point2i,cv::Point2i>>& lines);
     int detectRails(cv::Mat& cv_img);
@@ -47,6 +49,7 @@ private:
 
     ros::Subscriber elevation_map_subscriber_;
     ros::Publisher marker_publisher_;
+    ros::Publisher pose_percept_pub_;
     boost::shared_ptr<actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction> > detection_object_server_;
     grid_map::GridMap grid_map_;
     float max_height_;
