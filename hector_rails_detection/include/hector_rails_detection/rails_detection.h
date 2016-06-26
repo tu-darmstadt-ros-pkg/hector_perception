@@ -43,13 +43,12 @@ private:
     void computeBlobOrientations(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, std::vector<float>& blob_orientations);
     void fitLineToBlob(const cv::Mat& max_orientations, const std::vector<cv::KeyPoint>& keypoints, const std::vector<float>& blob_orientations,  std::vector<std::pair<cv::Point2i,cv::Point2i>>& lines);
     int detectRails(cv::Mat& cv_img);
-    int detectRailsRectangle(cv::Mat& cv_img);
-    void detectRectangle(const cv::Mat& img_in, cv::Mat& img_support, float width, float length, float angle, const std::vector<cv::KeyPoint>&  keypoints, const std::vector<float>& blob_orientations, std::vector<std::pair<cv::Point2i,cv::Point2i>>& rails);
+    void detectRectangle(const cv::Mat& img_in, cv::Mat& img_support, std::vector<cv::KeyPoint>&  keypoints, const std::vector<float>& blob_orientations, std::vector<std::pair<cv::Point2i,cv::Point2i>>& rails);
 
 
     ros::Subscriber elevation_map_subscriber_;
     ros::Publisher marker_publisher_;
-    ros::Publisher pose_percept_pub_;
+    ros::Publisher pose_percept_publisher_;
     boost::shared_ptr<actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction> > detection_object_server_;
     grid_map::GridMap grid_map_;
     float max_height_;
@@ -57,6 +56,10 @@ private:
 
 
     //params
+    int n_rails_;
+    double track_length_;
+    double track_width_;
+    double rail_width_;
     double gradient_z_min_;
     double gradient_z_max_;
     double gradient_dif_min_;
