@@ -68,14 +68,6 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     // pointcloud from laserscan/ region of intereset in front of the robot ???
     //void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg){
 
-    std::cout<<"frame: "<< frame_id<<std::endl;
-    ROS_INFO("min x: %f", min.x);
-    ROS_INFO("min y: %f", min.y);
-    ROS_INFO("min z: %f", min.z);
-    ROS_INFO("max x: %f", max.x);
-    ROS_INFO("max y: %f", max.y);
-    ROS_INFO("max z: %f", max.z);
-
     bool success = false;
 
     ros::NodeHandle n("");
@@ -96,11 +88,11 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     }else{
         //default parameter
         erreq.header.frame_id=worldFrame_;
-        erreq.bounding_box_max.x=10;
-        erreq.bounding_box_max.y=10;
+        erreq.bounding_box_max.x=passThroughXMax_;
+        erreq.bounding_box_max.y=passThroughYMax_;
         erreq.bounding_box_max.z=passThroughZMax_;
-        erreq.bounding_box_min.x=-10;
-        erreq.bounding_box_min.y=-10;
+        erreq.bounding_box_min.x=passThroughXMin_;
+        erreq.bounding_box_min.y=passThroughYMin_;
         erreq.bounding_box_min.z=passThroughZMin_;
     }
     erreq.resolution=0;  //0 <=> default
