@@ -57,6 +57,7 @@ protected:
     ros::Publisher cloud_filtered_publisher_;
     ros::Publisher cluster_pub_debug_;
     ros::Publisher five_pipes_pos_pub_;
+    ros::Publisher cluster_centers_pub_;
     ros::Publisher posePercept_pub_;
 
     ros::Subscriber pointcloud_sub_;
@@ -64,7 +65,9 @@ protected:
 
     tf::TransformListener listener_;
     Eigen::Affine3d to_map_;
-    //void PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud;
+    void PclCallback(const sensor_msgs::PointCloud2 &pc_msg);
 
     void executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal);
 
