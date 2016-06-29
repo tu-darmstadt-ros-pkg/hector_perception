@@ -1,4 +1,3 @@
-#include <ros/ros.h>
 #include <hector_five_pipes_detection/hector_five_pipes_detection.h>
 
 namespace hector_five_pipes_detection{
@@ -29,26 +28,61 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     dynamic_recf_server.setCallback(dynamic_recf_type);
 
     orginal_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/input_cloud_debug", 100, true);
-    after_pass_through_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/after_pass_through_debug", 100, true);
+    roi_debug_pub_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/pcl_roi", 100, true);
     after_voxel_grid_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/after_voxel_gird_debug", 100, true);
-    final_cloud_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/final_cloud_pub_debug", 100, true);
+    cloud_without_planes_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/final_cloud_pub_debug", 100, true);
     plane_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/plane_pub_debug", 100, true);
     cloud_filtered_publisher_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/cylinder_cloud_debug", 100, true);
     cluster_pub_debug_= nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/hector_five_pipe_detection/cluster_cloud_debug", 100, true);
     five_pipes_pos_pub_= nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/hector_five_pipe_detection/five_pipes_positions", 100, true);
+    cluster_centers_pub_= nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/hector_five_pipe_detection/cloud_centers", 100, true);
+    posePercept_pub_= nh.advertise<hector_worldmodel_msgs::PosePercept>("/worldmodel/pose_percept", 0);
 
-    //pointcloud_sub_ = nh.subscribe("/worldmodel_main/pointcloud_vis", 10, &HectorFivePipesDetection::PclCallback, this);
-
-    posePercept_pub_= nh.advertise<hector_worldmodel_msgs::PosePercept>       ("/worldmodel/pose_percept", 0);
+    pointcloud_sub_ = nh.subscribe("/worldmodel_main/pointcloud_vis", 10, &HectorFivePipesDetection::PclCallback, this);
+//    tf_sub_ = nh.subscribe("/tf", 10, &HectorFivePipesDetection::TfCallback, this);
 
     ros::NodeHandle pnh("~");
     detection_object_server_.reset(new actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction>(pnh, "detect", boost::bind(&HectorFivePipesDetection::executeCallback, this, _1) ,false));
     detection_object_server_->start();
 
+    robot_pose_init = false;
+
 }
 
 HectorFivePipesDetection::~HectorFivePipesDetection()
 {}
+
+/*
+void HectorFivePipesDetection::TfCallback(const tf2_msgs::TFMessage &tf_msg){
+    std::vector<geometry_msgs::TransformStamped> tf_transform_stamped_vec = tf_msg.transforms;
+    geometry_msgs::TransformStamped robot_pose;
+    std::string baselink = "base_link";
+    for (int i = 0; i < tf_transform_stamped_vec.size(); i++){
+        geometry_msgs::TransformStamped tfs = tf_transform_stamped_vec[i];
+        std::string child_frame_id = tfs.child_frame_id;
+        if (baselink.compare(child_frame_id)){
+            ROS_INFO("child_frame_id = %s, frame_id = %s", child_frame_id.);
+            robot_pose = tf_transform_stamped_vec[i];
+            robot_rotation.x() = robot_pose.transform.rotation.x;
+            robot_rotation.y() = robot_pose.transform.rotation.y;
+            robot_rotation.z() = robot_pose.transform.rotation.z;
+            robot_rotation.w() = robot_pose.transform.rotation.w;
+            robot_position[0] = robot_pose.transform.translation.x;
+            robot_position[1] = robot_pose.transform.translation.y;
+            robot_position[2] = robot_pose.transform.translation.z;
+            robot_pose_init = true;
+            // robot pose found via frame_id_comparison
+            break;
+        }
+    }
+}*/
+
+
+void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2& pc_msg){
+    input_cloud.reset(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::fromROSMsg(pc_msg, *input_cloud);
+    //ROS_INFO("5pipesDetection: pcl callback received, Robot pose init = %i", robot_pose_init);
+}
 
 void HectorFivePipesDetection::executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal)
 {
@@ -64,14 +98,22 @@ void HectorFivePipesDetection::executeCallback(const hector_perception_msgs::Det
 
 bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const geometry_msgs::Point& max, const std::string& frame_id)
 {
+
     // maybe better as service
     // pointcloud from laserscan/ region of intereset in front of the robot ???
-    //void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg){
+
+    std::cout<<"frame: "<< frame_id<<std::endl;
+ /*   ROS_INFO("min x: %f", min.x);
+    ROS_INFO("min y: %f", min.y);
+    ROS_INFO("min z: %f", min.z);
+    ROS_INFO("max x: %f", max.x);
+    ROS_INFO("max y: %f", max.y);
+    ROS_INFO("max z: %f", max.z);*/
 
     bool success = false;
 
     ros::NodeHandle n("");
-    pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+  //  pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
     pointcloud_srv_client_ = n.serviceClient<vigir_perception_msgs::PointCloudRegionRequest>("/worldmodel_main/pointcloud_roi");
     vigir_perception_msgs::PointCloudRegionRequest srv;
@@ -88,11 +130,11 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     }else{
         //default parameter
         erreq.header.frame_id=worldFrame_;
-        erreq.bounding_box_max.x=passThroughXMax_;
-        erreq.bounding_box_max.y=passThroughYMax_;
+        erreq.bounding_box_max.x=10;
+        erreq.bounding_box_max.y=10;
         erreq.bounding_box_max.z=passThroughZMax_;
-        erreq.bounding_box_min.x=passThroughXMin_;
-        erreq.bounding_box_min.y=passThroughYMin_;
+        erreq.bounding_box_min.x=-10;
+        erreq.bounding_box_min.y=-10;
         erreq.bounding_box_min.z=passThroughZMin_;
     }
     erreq.resolution=0;  //0 <=> default
@@ -100,26 +142,112 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     srv.request.region_req=erreq;
     srv.request.aggregation_size=500;
 
-    if(!pointcloud_srv_client_.call(srv)){
-        ROS_ERROR("service: /worldmodel/pointcloud_roi is not working");
-        return success;
-    }else{
-        sensor_msgs::PointCloud2 pointCloud_world;
-        pointCloud_world=srv.response.cloud;
+    if (input_cloud->empty()){
+        ROS_INFO("input cloud data size is 0 // normal for no test");
+        if(!pointcloud_srv_client_.call(srv)){
+            ROS_ERROR("service: /worldmodel/pointcloud_roi is not working");
+            return success;
+        }else{
+            sensor_msgs::PointCloud2 pointCloud_world;
+            pointCloud_world=srv.response.cloud;
 
-        pcl::PCLPointCloud2 pcl_pc;
-        pcl_conversions::toPCL(pointCloud_world, pcl_pc);
-        pcl::fromPCLPointCloud2(pcl_pc, *input_cloud);
-        input_cloud->header.frame_id=worldFrame_;
+            pcl::PCLPointCloud2 pcl_pc;
+            pcl_conversions::toPCL(pointCloud_world, pcl_pc);
+            pcl::fromPCLPointCloud2(pcl_pc, *input_cloud);
+        }
+    } else {
+        ROS_INFO("input cloud data size is NOT 0 (test setup, cloud was received via callback)");
     }
 
+    input_cloud->header.frame_id=worldFrame_;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_roi(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::PointCloud<pcl::PointXYZ>::Ptr processCloud_v2(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud_plane_seg(new pcl::PointCloud<pcl::PointXYZ>());
-    pcl::PointCloud<pcl::PointXYZ>::Ptr rest_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_withouth_planes(new pcl::PointCloud<pcl::PointXYZ>());
 
     orginal_pub_debug_.publish(input_cloud);
+    for (int i = 0; i < input_cloud->size(); i++){
+        pcl::PointXYZ p = input_cloud->at(i);
+        cloud_roi->push_back(p);
+    }
+    //cloud_roi = input_cloud;
+    ROS_INFO("roi_cloud computed. size = %i", cloud_roi->size());
+    int count = 0;
 
-    processCloud_v2=input_cloud;
+    tf::StampedTransform transform;
+    ROS_INFO("try tf listener find transform");
+    try{
+      tf_listener.lookupTransform("/world", "/base_link", ros::Time(0), transform);
+      robot_pose_init = true;
+    }catch(tf::TransformException e){
+      ROS_INFO("failed tf listener find transform");
+      ROS_ERROR("Transform lookup failed in get 5pipes detection server goal callback: %s",e.what());
+    }
+
+    if (robot_pose_init){
+
+        // TODO use transform
+        robot_rotation.x() = transform.getRotation().x();
+        robot_rotation.y() = transform.getRotation().y();
+        robot_rotation.z() = transform.getRotation().z();
+        robot_rotation.w() = transform.getRotation().w();
+        robot_position[0] = transform.getOrigin().x();
+        robot_position[1] = transform.getOrigin().y();
+        robot_position[2] = transform.getOrigin().z();
+
+        cloud_roi->clear();
+        // roboter pose
+        ROS_INFO("5pipes() started, robot x=%f, y=%f, z=%f", robot_position[0], robot_position[1], robot_position[2]);
+        Eigen::Quaternionf q = robot_rotation;
+        q.normalize();
+        Eigen::Vector3f xAxis(1,0,0);
+        Eigen::Quaternionf p;
+        p.w() = 0;
+        p.vec() = xAxis;
+        Eigen::Quaternionf rotatedP = q * p * q.inverse();
+        Eigen::Vector3f robot_x_axis = rotatedP.vec();
+        ROS_INFO("robot points towards x=%f, y=%f, z=%f", robot_x_axis[0], robot_x_axis[1], robot_x_axis[2]);
+        // region of interest from robot position
+        /*float min_dist_x = 0.2;
+        float max_dist_x = 1.5;
+        float min_dist_y = -0.5;
+        float max_dist_y = 0.5;
+        float min_z = 0;
+        float max_z = 1.5;*/
+
+        // above TODO, first try out with circular bounding box
+        float center_dist_x = 0.7;
+        // float center_dist_y = 0; // unused because 0.
+        float center_z = 0.7;
+        float radius = 1.0;
+
+        float center_x = robot_position[0] + robot_x_axis[0]*center_dist_x;
+        float center_y = robot_position[1] + robot_x_axis[1]*center_dist_x;
+        pcl::PointXYZ center = pcl::PointXYZ(center_x, center_y, center_z);
+        ROS_INFO("center of roi x=%f, y=%f, z=%f", center_x, center_y, center_z);
+
+        for (int i = 0; i < input_cloud->size(); i++){
+            pcl::PointXYZ p = input_cloud->at(i);
+            float x = p.data[0];
+            float y = p.data[1];
+            float z = p.data[2];
+            float dist = std::sqrt(std::pow(center_x-x,2) + std::pow(center_y-y,2) + std::pow(center_z-z,2));
+            if (dist < radius){
+                count++;
+                cloud_roi->push_back(p);
+            }
+        }
+        ROS_INFO("roi_cloud computed. size = %i", cloud_roi->size());
+    }
+
+    cloud_roi->header.frame_id = input_cloud->header.frame_id;
+    cloud_roi->header.stamp = input_cloud->header.stamp;
+    roi_debug_pub_.publish(cloud_roi);
+
+
+
+    //TODO from here on cloud_roi should be used instead of input cloud
+    processCloud_v2=cloud_roi;
 
     pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
@@ -129,6 +257,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     seg.setMethodType (pcl::SAC_RANSAC);
     seg.setDistanceThreshold (planeSegDistTresh_);
 
+    // plane segmentation
     do{
         seg.setInputCloud (processCloud_v2);
         seg.segment (*inliers, *coefficients);
@@ -152,18 +281,18 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         extract.setInputCloud (processCloud_v2);
         extract.setIndices (inliers);
         extract.setNegative(true);
-        extract.filter (*rest_cloud);
-        rest_cloud->header.frame_id=worldFrame_;
-        processCloud_v2=rest_cloud;
+        extract.filter (*cloud_withouth_planes);
+        cloud_withouth_planes->header.frame_id=worldFrame_;
+        processCloud_v2=cloud_withouth_planes;
 
     }while(1);
 
     ROS_DEBUG("ouput plane size: %d", (int)output_cloud_plane_seg->size());
-    final_cloud_pub_debug_.publish(rest_cloud);
+    cloud_without_planes_pub_debug_.publish(cloud_withouth_planes);
 
     // clustering
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
-    tree->setInputCloud (rest_cloud);
+    tree->setInputCloud (cloud_withouth_planes);
 
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
@@ -171,15 +300,15 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     ec.setMinClusterSize (minClusterSize_);
     ec.setMaxClusterSize (maxClusterSize_);
     ec.setSearchMethod (tree);
-    ec.setInputCloud (rest_cloud);
+    ec.setInputCloud (cloud_withouth_planes);
     ec.extract (cluster_indices);
 
     ROS_DEBUG("number cluster: %d", (int)cluster_indices.size());
 
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZI>);
-    cloud_cluster->header.frame_id=rest_cloud->header.frame_id;
+    cloud_cluster->header.frame_id=cloud_withouth_planes->header.frame_id;
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster_centers (new pcl::PointCloud<pcl::PointXYZ>);
-    cloud_cluster_centers->header.frame_id=rest_cloud->header.frame_id;
+    cloud_cluster_centers->header.frame_id=cloud_withouth_planes->header.frame_id;
     int j = 0;
     double sum_x=0;
     double sum_y=0;
@@ -192,9 +321,9 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         sum_z=0;
         for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit){
             pcl::PointXYZI pushback;
-            pushback.x=rest_cloud->points[*pit].x;
-            pushback.y=rest_cloud->points[*pit].y;
-            pushback.z=rest_cloud->points[*pit].z;
+            pushback.x=cloud_withouth_planes->points[*pit].x;
+            pushback.y=cloud_withouth_planes->points[*pit].y;
+            pushback.z=cloud_withouth_planes->points[*pit].z;
             pushback.intensity=j;
             cloud_cluster->points.push_back (pushback);
             sum_x=sum_x + pushback.x;
@@ -208,67 +337,118 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         j++;
     }
 
+
     cluster_pub_debug_.publish(cloud_cluster);
+    cluster_centers_pub_.publish(cloud_cluster_centers);
+    // clusters found
+
+ //   if (cloud_cluster_centers->size() != 5){
+        ROS_INFO("%i clusters found. Proceed.", cloud_cluster_centers->size());
+   //     return success; // false
+  //  }
 
     // get position of clusters / cylinder
     pcl::PointCloud<pcl::PointXYZ>::Ptr start_check_positions (new pcl::PointCloud<pcl::PointXYZ>);
-    start_check_positions->header.frame_id=rest_cloud->header.frame_id;
+    start_check_positions->header.frame_id=cloud_withouth_planes->header.frame_id;
 
     pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
     kdtree.setInputCloud (cloud_cluster_centers);
 
+    std::vector<pcl::PointXYZ> sortedListOfCenters;
+
+    // find mid cluster center
+    pcl::PointXYZ centerPoint = pcl::PointXYZ(0, 0, 0);
     for(int i=0; i< cloud_cluster_centers->points.size(); i++){
         pcl::PointXYZ searchPoint;
-
         searchPoint= cloud_cluster_centers->points.at(i);
 
         // Neighbors within radius search
         std::vector<int> pointIdxRadiusSearch;
         std::vector<float> pointRadiusSquaredDistance;
 
-        if ( kdtree.radiusSearch (searchPoint, searchRadius_, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 4 )
+        // if cluster center in the middle of 4 other cluster centers
+        if ( kdtree.radiusSearch (searchPoint, searchRadius_, pointIdxRadiusSearch, pointRadiusSquaredDistance) == 5 )
         {
-            pcl::PointXYZ centerPoint;
-            centerPoint.x=0;
-            centerPoint.y=0;
-            centerPoint.z=0;
-            ROS_DEBUG("more than 4 centers in radius => start check positions found");
+            ROS_INFO("exactly 5 centers in radius => start check positions found");
             pcl::PointXYZ p;
-            for (size_t i = 0; i < pointIdxRadiusSearch.size (); ++i)
-            {
+            sortedListOfCenters.push_back(searchPoint);
+            for (size_t i = 0; i < pointIdxRadiusSearch.size (); ++i){
+                ROS_INFO("i = %i, should be 0 to 4", i);
                 p=cloud_cluster_centers->points[ pointIdxRadiusSearch[i] ];
+                ROS_INFO("OnePointOfPose x=%f, y=%f, z=%f", p.x, p.y, p.z);
                 start_check_positions->points.push_back(p);
                 centerPoint.x= centerPoint.x + p.x;
                 centerPoint.y= centerPoint.y + p.y;
                 centerPoint.z= centerPoint.z + p.z;
-            }
 
+                // fill sorted list of final centers
+                if (p.z > centerPoint.z)
+                    sortedListOfCenters.insert(sortedListOfCenters.begin(),p);
+                else if (p.z < centerPoint.z)
+                    sortedListOfCenters.push_back(p);
+                // else: was already put in list.
+            }
+            ROS_INFO("pointssize should be 5 : %i", pointIdxRadiusSearch.size());
             centerPoint.x= centerPoint.x / pointIdxRadiusSearch.size ();
             centerPoint.y= centerPoint.y / pointIdxRadiusSearch.size ();
             centerPoint.z= centerPoint.z / pointIdxRadiusSearch.size ();
-
-            //publish center to worldmodel
-            hector_worldmodel_msgs::PosePercept pp;
-
-            pp.header.frame_id= start_check_positions->header.frame_id;
-            pp.header.stamp= srv.response.cloud.header.stamp;
-            pp.info.class_id= "pipes";
-            pp.info.class_support=1;
-            pp.info.object_support=1;
-            pp.pose.pose.position.x= centerPoint.x;
-            pp.pose.pose.position.y= centerPoint.y;
-            pp.pose.pose.position.z= centerPoint.z;
-            pp.pose.pose.orientation.x= pp.pose.pose.orientation.y = pp.pose.pose.orientation.z= 0;
-            pp.pose.pose.orientation.w= 1;
-
-            posePercept_pub_.publish(pp);
-            ROS_INFO("PosePercept startcheck postion pipes published");
-
             success = true;
+            break;
         }
     }
 
-    five_pipes_pos_pub_.publish(start_check_positions);
+    if (success){
+        // find our orientation of pose
+        // make a vector product to find the direction.
+        Eigen::Vector3f v0 = Eigen::Vector3f(sortedListOfCenters[0].x - sortedListOfCenters[1].x,
+                                                 sortedListOfCenters[0].y - sortedListOfCenters[1].y,
+                                                 sortedListOfCenters[0].z - sortedListOfCenters[1].z);
+        Eigen::Vector3f v1 = Eigen::Vector3f(sortedListOfCenters[0].x - sortedListOfCenters[2].x,
+                                                 sortedListOfCenters[0].y - sortedListOfCenters[2].y,
+                                                 sortedListOfCenters[0].z - sortedListOfCenters[2].z);
+        Eigen::Vector3f poseOrientation = v0.cross(v1);
+        poseOrientation.normalize();
+        // TODO calc roll pitch yaw (take into account that plane is already parallel to Z and generate quaternion from it)
+        ROS_INFO("success, poseOrientation x=%f, y=%f, z=%f", poseOrientation[0], poseOrientation[1], poseOrientation[2]);
+        // cross product to get pose (this might have to be inverted, so check for robot pose.
+        // TODO atan2(y,x)
+        //Eigen::Vector3f axis(1,1,1);
+        float roll = 0;
+        float pitch = acos(poseOrientation.dot(Eigen::Vector3f::UnitZ()));
+        float yaw = 0;
+        Eigen::AngleAxisf rollAngle(roll, Eigen::Vector3f::UnitZ());
+        Eigen::AngleAxisf yawAngle(yaw, Eigen::Vector3f::UnitY());
+        Eigen::AngleAxisf pitchAngle(pitch, Eigen::Vector3f::UnitX());
+
+        Eigen::Quaternion<float> quat = rollAngle * yawAngle * pitchAngle;
+       // Eigen::Quaternion<float> quat = Eigen::Quaternion<float>::FromTwoVectors(axis, poseOrientation);
+        //quat = Eigen::AngleAxis<float>(0, poseOrientation);
+        ROS_INFO("posequaternion x=%f, y=%f, z=%f, w=%f", quat.x(), quat.y(), quat.z(), quat.w());
+        ROS_INFO("pose x=%f, y=%f, z=%f", centerPoint.x, centerPoint.y, centerPoint.z);
+        hector_worldmodel_msgs::PosePercept pp;
+        pp.header.frame_id= start_check_positions->header.frame_id;
+        pp.header.stamp= srv.response.cloud.header.stamp;
+        pp.info.class_id= "start_check_pipe";
+        pp.info.class_support=1;
+        pp.info.object_support=1;
+        pp.pose.pose.position.x= centerPoint.x;
+        pp.pose.pose.position.y= centerPoint.y;
+        pp.pose.pose.position.z= centerPoint.z;
+  //    pp.pose.pose.orientation.x= pp.pose.pose.orientation.y = pp.pose.pose.orientation.z= 0;
+        pp.pose.pose.orientation.x= quat.x();
+        pp.pose.pose.orientation.y= quat.y();
+        pp.pose.pose.orientation.z= quat.z();
+        pp.pose.pose.orientation.w= quat.w();
+
+        posePercept_pub_.publish(pp);
+        ROS_INFO("PosePercept startcheck postion pipes published");
+
+        five_pipes_pos_pub_.publish(start_check_positions);
+    }
+    else {
+        ROS_INFO("no radius search with 5 cluster centers found.");
+    }
+
 
     return success;
 }

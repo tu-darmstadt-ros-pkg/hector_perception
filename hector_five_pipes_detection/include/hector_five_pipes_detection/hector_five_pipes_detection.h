@@ -8,6 +8,8 @@
 #include <tf/transform_listener.h>
 #include <tf_conversions/tf_eigen.h>
 
+#include <hector_worldmodel_msgs/PosePercept.h>
+
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_types.h>
@@ -38,7 +40,9 @@
 #include <actionlib/server/simple_action_server.h>
 #include <hector_perception_msgs/DetectObjectAction.h>
 
-#include <hector_worldmodel_msgs/PosePercept.h>
+#include <vector>
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 
 namespace hector_five_pipes_detection{
 
@@ -50,21 +54,32 @@ public:
 
 protected:
     ros::Publisher orginal_pub_debug_;
-    ros::Publisher after_pass_through_pub_debug_;
+    ros::Publisher roi_debug_pub_;
     ros::Publisher after_voxel_grid_pub_debug_;
-    ros::Publisher final_cloud_pub_debug_;
+    ros::Publisher cloud_without_planes_pub_debug_;
     ros::Publisher plane_pub_debug_;
     ros::Publisher cloud_filtered_publisher_;
     ros::Publisher cluster_pub_debug_;
     ros::Publisher five_pipes_pos_pub_;
+    ros::Publisher cluster_centers_pub_;
     ros::Publisher posePercept_pub_;
 
     ros::Subscriber pointcloud_sub_;
     ros::ServiceClient pointcloud_srv_client_;
 
-    tf::TransformListener listener_;
+ //   ros::Subscriber tf_sub_;
+    bool robot_pose_init;
+    Eigen::Quaternion<float> robot_rotation;
+    Eigen::Vector3f robot_position;
+
     Eigen::Affine3d to_map_;
-    //void PclCallback(const sensor_msgs::PointCloud2::ConstPtr& pc_msg);
+
+    tf::TransformListener tf_listener;
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud;
+    void PclCallback(const sensor_msgs::PointCloud2 &pc_msg);
+
+  //  void TfCallback(const tf2_msgs::TFMessage &tf_msg);
 
     void executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal);
 
