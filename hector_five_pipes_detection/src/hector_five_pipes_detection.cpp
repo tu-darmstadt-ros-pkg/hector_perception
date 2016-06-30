@@ -53,32 +53,6 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
 HectorFivePipesDetection::~HectorFivePipesDetection()
 {}
 
-/*
-void HectorFivePipesDetection::TfCallback(const tf2_msgs::TFMessage &tf_msg){
-    std::vector<geometry_msgs::TransformStamped> tf_transform_stamped_vec = tf_msg.transforms;
-    geometry_msgs::TransformStamped robot_pose;
-    std::string baselink = "base_link";
-    for (int i = 0; i < tf_transform_stamped_vec.size(); i++){
-        geometry_msgs::TransformStamped tfs = tf_transform_stamped_vec[i];
-        std::string child_frame_id = tfs.child_frame_id;
-        if (baselink.compare(child_frame_id)){
-            ROS_INFO("child_frame_id = %s, frame_id = %s", child_frame_id.);
-            robot_pose = tf_transform_stamped_vec[i];
-            robot_rotation.x() = robot_pose.transform.rotation.x;
-            robot_rotation.y() = robot_pose.transform.rotation.y;
-            robot_rotation.z() = robot_pose.transform.rotation.z;
-            robot_rotation.w() = robot_pose.transform.rotation.w;
-            robot_position[0] = robot_pose.transform.translation.x;
-            robot_position[1] = robot_pose.transform.translation.y;
-            robot_position[2] = robot_pose.transform.translation.z;
-            robot_pose_init = true;
-            // robot pose found via frame_id_comparison
-            break;
-        }
-    }
-}*/
-
-
 void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2& pc_msg){
     input_cloud.reset(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::fromROSMsg(pc_msg, *input_cloud);
@@ -87,13 +61,9 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2& pc_ms
 
 void HectorFivePipesDetection::executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal)
 {
-
     hector_perception_msgs::DetectObjectResult result;
-
-
     // Do stuff and set result appropriately
     result.detection_success = findPipes(goal->detect_request.roi_hint.bounding_box_min, goal->detect_request.roi_hint.bounding_box_max, goal->detect_request.roi_hint.header.frame_id);
-
     detection_object_server_->setSucceeded(result);
 }
 
@@ -101,8 +71,6 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 {
 
     // maybe better as service
-    // pointcloud from laserscan/ region of intereset in front of the robot ???
-
     std::cout<<"frame: "<< frame_id<<std::endl;
  /*   ROS_INFO("min x: %f", min.x);
     ROS_INFO("min y: %f", min.y);
@@ -110,7 +78,6 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     ROS_INFO("max x: %f", max.x);
     ROS_INFO("max y: %f", max.y);
     ROS_INFO("max z: %f", max.z);*/
-
     bool success = false;
 
     ros::NodeHandle n("");
@@ -173,22 +140,19 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     }
     //cloud_roi = input_cloud;
     ROS_INFO("roi_cloud computed. size = %i", cloud_roi->size());
-    int count = 0;
 
     tf::StampedTransform transform;
-    ROS_INFO("try tf listener find transform");
+    ROS_DEBUG("try tf listener find transform");
     try{
       tf_listener.lookupTransform("/world", "/base_link", ros::Time(0), transform);
       robot_pose_init = true;
     }catch(tf::TransformException e){
-      ROS_INFO("failed tf listener find transform");
       ROS_ERROR("Transform lookup failed in get 5pipes detection server goal callback: %s",e.what());
     }
 
-    robot_pose_init = false;
-    if (robot_pose_init){
 
-        // TODO use transform
+    // use region of interest in front of the robot
+    if (robot_pose_init){
         robot_rotation.x() = transform.getRotation().x();
         robot_rotation.y() = transform.getRotation().y();
         robot_rotation.z() = transform.getRotation().z();
@@ -199,7 +163,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 
         cloud_roi->clear();
         // roboter pose
-        ROS_INFO("5pipes() started, robot x=%f, y=%f, z=%f", robot_position[0], robot_position[1], robot_position[2]);
+        ROS_INFO("5pipes: robot at x=%f, y=%f, z=%f", robot_position[0], robot_position[1], robot_position[2]);
         Eigen::Quaternionf q = robot_rotation;
         q.normalize();
         Eigen::Vector3f xAxis(1,0,0);
@@ -208,7 +172,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         p.vec() = xAxis;
         Eigen::Quaternionf rotatedP = q * p * q.inverse();
         Eigen::Vector3f robot_x_axis = rotatedP.vec();
-        ROS_INFO("robot points towards x=%f, y=%f, z=%f", robot_x_axis[0], robot_x_axis[1], robot_x_axis[2]);
+        ROS_INFO("5pipes: robot orientation towards x=%f, y=%f, z=%f", robot_x_axis[0], robot_x_axis[1], robot_x_axis[2]);
         // region of interest from robot position
         /*float min_dist_x = 0.2;
         float max_dist_x = 1.5;
@@ -226,7 +190,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         float center_x = robot_position[0] + robot_x_axis[0]*center_dist_x;
         float center_y = robot_position[1] + robot_x_axis[1]*center_dist_x;
         pcl::PointXYZ center = pcl::PointXYZ(center_x, center_y, center_z);
-        ROS_INFO("center of roi x=%f, y=%f, z=%f", center_x, center_y, center_z);
+        ROS_INFO("5pipes: center of roi x=%f, y=%f, z=%f", center_x, center_y, center_z);
 
         for (int i = 0; i < input_cloud->size(); i++){
             pcl::PointXYZ p = input_cloud->at(i);
@@ -234,8 +198,8 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
             float y = p.data[1];
             float z = p.data[2];
             float dist = std::sqrt(std::pow(center_x-x,2) + std::pow(center_y-y,2) + std::pow(center_z-z,2));
+            ROS_INFO("dist = %f, radius = %f", dist, radius);
             if (dist < radius){
-                count++;
                 cloud_roi->push_back(p);
             }
         }
@@ -249,8 +213,13 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 
 
     //TODO from here on cloud_roi should be used instead of input cloud
-    processCloud_v2=cloud_roi;
-
+    if (cloud_roi->size() < 100){
+        processCloud_v2 = input_cloud;
+    }
+    else{
+        processCloud_v2=cloud_roi;
+        ROS_INFO("ROI could too small, using input cloud instead");
+    }
     pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
     pcl::SACSegmentation<pcl::PointXYZ> seg;
@@ -344,13 +313,10 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     cluster_centers_pub_.publish(cloud_cluster_centers);
     // clusters found
 
- //   if (cloud_cluster_centers->size() != 5){
-    ROS_INFO("%i clusters found. Proceed.", cloud_cluster_centers->size());
-   //     return success; // false
-  //  }
+    ROS_INFO("5pipes: %i clusters found. Proceed.", cloud_cluster_centers->size());
 
     // filter clusters
- /*   bool filter_clusters_active = false;
+    bool filter_clusters_active = false; //PARAM
     if (filter_clusters_active){
         ROS_INFO("enter filtering clusters");
         float max_radius = 0.03;
@@ -392,7 +358,6 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     }
     // TODO use the cloud processed
 
-*/
 
     // get position of clusters / cylinder
     pcl::PointCloud<pcl::PointXYZ>::Ptr start_check_positions (new pcl::PointCloud<pcl::PointXYZ>);
@@ -403,6 +368,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 
     std::vector<pcl::PointXYZ> sortedListOfCenters;
 
+    int min_cluster_centers_start_pose = 4; // PARAM
     // find mid cluster center
     pcl::PointXYZ centerPoint = pcl::PointXYZ(0, 0, 0);
     for(int i=0; i< cloud_cluster_centers->points.size(); i++){
@@ -413,9 +379,9 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         std::vector<float> pointRadiusSquaredDistance;
 
         // if cluster center in the middle of 4 other cluster centers
-        if ( kdtree.radiusSearch (searchPoint, searchRadius_, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 3 )
+        if ( kdtree.radiusSearch (searchPoint, searchRadius_, pointIdxRadiusSearch, pointRadiusSquaredDistance) >= min_cluster_centers_start_pose )
         {
-            ROS_INFO("4 or more centers in radius => start check positions found");
+            ROS_INFO("5pipes: %i or more centers in radius => start check positions found", min_cluster_centers_start_pose);
             pcl::PointXYZ p;
             sortedListOfCenters.push_back(searchPoint);
             for (size_t i = 0; i < pointIdxRadiusSearch.size (); ++i){
