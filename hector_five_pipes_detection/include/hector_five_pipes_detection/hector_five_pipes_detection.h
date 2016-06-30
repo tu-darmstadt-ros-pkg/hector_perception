@@ -28,6 +28,7 @@
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/filters/filter.h>
 
 #include <sensor_msgs/PointCloud2.h>
 #include <pcl/kdtree/kdtree.h>
@@ -66,7 +67,7 @@ protected:
     ros::Publisher posePercept_debug_pub_;
 
     ros::Subscriber pointcloud_sub_;
-    ros::ServiceClient pointcloud_srv_client_;
+ //  ros::ServiceClient pointcloud_srv_client_;
 
  //   ros::Subscriber tf_sub_;
     bool robot_pose_init;
@@ -83,6 +84,8 @@ protected:
   //  void TfCallback(const tf2_msgs::TFMessage &tf_msg);
 
     void executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cleanPointCloud( pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloud);
 
     bool findPipes(const geometry_msgs::Point& min, const geometry_msgs::Point& max, const std::string& frame_id);
 

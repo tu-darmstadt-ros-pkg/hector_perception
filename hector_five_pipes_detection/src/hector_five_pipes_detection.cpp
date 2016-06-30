@@ -39,8 +39,7 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     posePercept_pub_= nh.advertise<hector_worldmodel_msgs::PosePercept>("/worldmodel/pose_percept", 0);
     posePercept_debug_pub_ = nh.advertise<geometry_msgs::PoseStamped>("/hector_five_pipe_detection/pose_debug", 0); // oder posePercept stamped
 
-    pointcloud_sub_ = nh.subscribe("/worldmodel_main/pointcloud_vis", 10, &HectorFivePipesDetection::PclCallback, this);
-//    tf_sub_ = nh.subscribe("/tf", 10, &HectorFivePipesDetection::TfCallback, this);
+    pointcloud_sub_ = nh.subscribe("/arm_rgbd_cam/depth/points", 10, &HectorFivePipesDetection::PclCallback, this);
 
     ros::NodeHandle pnh("~");
     detection_object_server_.reset(new actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction>(pnh, "detect", boost::bind(&HectorFivePipesDetection::executeCallback, this, _1) ,false));
@@ -48,98 +47,125 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
 
     robot_pose_init = false;
 
+    pcl::PointCloud<pcl::PointXYZ>::Ptr first_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+    input_cloud = first_cloud;
+
 }
 
 HectorFivePipesDetection::~HectorFivePipesDetection()
 {}
 
 void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2& pc_msg){
-    input_cloud.reset(new pcl::PointCloud<pcl::PointXYZ>());
-    pcl::fromROSMsg(pc_msg, *input_cloud);
-    //ROS_INFO("5pipesDetection: pcl callback received, Robot pose init = %i", robot_pose_init);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr current_pcl(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::fromROSMsg(pc_msg, *current_pcl);
+    if(!current_pcl->empty()){
+        input_cloud=current_pcl;
+    }
+    else{
+        ROS_INFO("camera pcl is empty keepig latest non empty cloud for pipe detection");
+    }
 }
 
 void HectorFivePipesDetection::executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal)
 {
     hector_perception_msgs::DetectObjectResult result;
-    // Do stuff and set result appropriately
     result.detection_success = findPipes(goal->detect_request.roi_hint.bounding_box_min, goal->detect_request.roi_hint.bounding_box_max, goal->detect_request.roi_hint.header.frame_id);
     detection_object_server_->setSucceeded(result);
 }
 
+pcl::PointCloud<pcl::PointXYZ>::Ptr HectorFivePipesDetection::cleanPointCloud( pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloud)
+{
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_withouth_nans(new pcl::PointCloud<pcl::PointXYZ>());
+    for (int i = 0; i < pointCloud->size(); i++){
+        pcl::PointXYZ p = pointCloud->at(i);
+        if (p.x == p.x && p.y == p.y && p.z == p.z){
+            cloud_withouth_nans->push_back(p);
+        }
+    }
+    cloud_withouth_nans->header.frame_id = pointCloud->header.frame_id;
+    cloud_withouth_nans->header.stamp = pointCloud->header.stamp;
+    return cloud_withouth_nans;
+}
+
 bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const geometry_msgs::Point& max, const std::string& frame_id)
 {
-
     // maybe better as service
     std::cout<<"frame: "<< frame_id<<std::endl;
- /*   ROS_INFO("min x: %f", min.x);
-    ROS_INFO("min y: %f", min.y);
-    ROS_INFO("min z: %f", min.z);
-    ROS_INFO("max x: %f", max.x);
-    ROS_INFO("max y: %f", max.y);
-    ROS_INFO("max z: %f", max.z);*/
     bool success = false;
 
     ros::NodeHandle n("");
   //  pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
-    pointcloud_srv_client_ = n.serviceClient<vigir_perception_msgs::PointCloudRegionRequest>("/worldmodel_main/pointcloud_roi");
-    vigir_perception_msgs::PointCloudRegionRequest srv;
-    vigir_perception_msgs::EnvironmentRegionRequest erreq;
-    if(min.x != max.x && min.y != max.y && min.z != max.z && frame_id.empty()){
-        //bouding box parameter from action
-        erreq.header.frame_id=frame_id;
-        erreq.bounding_box_max.x=max.x;
-        erreq.bounding_box_max.y=max.y;
-        erreq.bounding_box_max.z=max.z;
-        erreq.bounding_box_min.x=min.x;
-        erreq.bounding_box_min.y=min.y;
-        erreq.bounding_box_min.z=min.z;
-    }else{
-        //default parameter
-        erreq.header.frame_id=worldFrame_;
-        erreq.bounding_box_max.x=10;
-        erreq.bounding_box_max.y=10;
-        erreq.bounding_box_max.z=passThroughZMax_;
-        erreq.bounding_box_min.x=-10;
-        erreq.bounding_box_min.y=-10;
-        erreq.bounding_box_min.z=passThroughZMin_;
-    }
-    erreq.resolution=0;  //0 <=> default
-    erreq.request_augment=0;
-    srv.request.region_req=erreq;
-    srv.request.aggregation_size=500;
-
+    //pointcloud_srv_client_ = n.serviceClient<vigir_perception_msgs::PointCloudRegionRequest>("/worldmodel_main/pointcloud_roi");
+//    vigir_perception_msgs::PointCloudRegionRequest srv;
+//    vigir_perception_msgs::EnvironmentRegionRequest erreq;
+//    if(min.x != max.x && min.y != max.y && min.z != max.z && frame_id.empty()){
+//        //bouding box parameter from action
+//        erreq.header.frame_id=frame_id;
+//        erreq.bounding_box_max.x=max.x;
+//        erreq.bounding_box_max.y=max.y;
+//        erreq.bounding_box_max.z=max.z;
+//        erreq.bounding_box_min.x=min.x;
+//        erreq.bounding_box_min.y=min.y;
+//        erreq.bounding_box_min.z=min.z;
+//    }else{
+//        //default parameter
+//        erreq.header.frame_id=worldFrame_;
+//        erreq.bounding_box_max.x=10;
+//        erreq.bounding_box_max.y=10;
+//        erreq.bounding_box_max.z=passThroughZMax_;
+//        erreq.bounding_box_min.x=-10;
+//        erreq.bounding_box_min.y=-10;
+//        erreq.bounding_box_min.z=passThroughZMin_;
+//    }
+//    erreq.resolution=0;  //0 <=> default
+//    erreq.request_augment=0;
+//    srv.request.region_req=erreq;
+//    srv.request.aggregation_size=500;
     if (input_cloud->empty()){
-        ROS_INFO("input cloud data size is 0 // normal for no test");
-        if(!pointcloud_srv_client_.call(srv)){
-            ROS_ERROR("service: /worldmodel/pointcloud_roi is not working");
+    //    ROS_INFO("input cloud data size is 0 // normal for no test");
+   //     if(!pointcloud_srv_client_.call(srv)){
+            ROS_ERROR("input cloud is empty (no data from /arm_rgbd_cam/depth/points reveived");
             return success;
-        }else{
-            sensor_msgs::PointCloud2 pointCloud_world;
-            pointCloud_world=srv.response.cloud;
-
-            pcl::PCLPointCloud2 pcl_pc;
-            pcl_conversions::toPCL(pointCloud_world, pcl_pc);
-            pcl::fromPCLPointCloud2(pcl_pc, *input_cloud);
         }
-    } else {
-        ROS_INFO("input cloud data size is NOT 0 (test setup, cloud was received via callback)");
+    input_cloud = cleanPointCloud(input_cloud);
+    ROS_INFO("transforming cloud");
+    tf::StampedTransform transform_cloud_to_world;
+    try{
+        ros::Time time = ros::Time(0);
+        tf_listener.waitForTransform(worldFrame_, input_cloud->header.frame_id,
+                                      time, ros::Duration(2.0));
+        tf_listener.lookupTransform(worldFrame_, input_cloud->header.frame_id,
+                                     time, transform_cloud_to_world);
+    }
+    catch (tf::TransformException ex){
+        ROS_ERROR("Lookup Transform failed: %s",ex.what());
+        return false;
     }
 
-    input_cloud->header.frame_id=worldFrame_;
+    Eigen::Affine3d to_world_;
+    tf::transformTFToEigen(transform_cloud_to_world, to_world_);
+    // Transform to /darias
+    boost::shared_ptr<pcl::PointCloud<pcl::PointXYZ> > cloud_tmp(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::transformPointCloud(*input_cloud, *cloud_tmp, to_world_);
+    input_cloud = cloud_tmp;
+    input_cloud->header.frame_id= transform_cloud_to_world.frame_id_;
+
+    ROS_DEBUG("done transforming, input cloud size = %i", input_cloud->size());
+
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_roi(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::PointCloud<pcl::PointXYZ>::Ptr processCloud_v2(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud_plane_seg(new pcl::PointCloud<pcl::PointXYZ>());
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_withouth_planes(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_without_planes(new pcl::PointCloud<pcl::PointXYZ>());
 
     orginal_pub_debug_.publish(input_cloud);
     for (int i = 0; i < input_cloud->size(); i++){
         pcl::PointXYZ p = input_cloud->at(i);
         cloud_roi->push_back(p);
     }
-    //cloud_roi = input_cloud;
-    ROS_INFO("roi_cloud computed. size = %i", cloud_roi->size());
+
+    ROS_DEBUG("roi_cloud computed. size = %i", cloud_roi->size());
 
     tf::StampedTransform transform;
     ROS_DEBUG("try tf listener find transform");
@@ -174,32 +200,24 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         Eigen::Vector3f robot_x_axis = rotatedP.vec();
         ROS_INFO("5pipes: robot orientation towards x=%f, y=%f, z=%f", robot_x_axis[0], robot_x_axis[1], robot_x_axis[2]);
         // region of interest from robot position
-        /*float min_dist_x = 0.2;
-        float max_dist_x = 1.5;
-        float min_dist_y = -0.5;
-        float max_dist_y = 0.5;
-        float min_z = 0;
-        float max_z = 1.5;*/
-
-        // above TODO, first try out with circular bounding box
-        float center_dist_x = 0.7;
+        // bounding box TODO, first try out with circular bounding box
+        float center_dist_x = 1.0;
         // float center_dist_y = 0; // unused because 0.
         float center_z = 0.7;
         float radius = 0.5;
 
         float center_x = robot_position[0] + robot_x_axis[0]*center_dist_x;
         float center_y = robot_position[1] + robot_x_axis[1]*center_dist_x;
-        pcl::PointXYZ center = pcl::PointXYZ(center_x, center_y, center_z);
         ROS_INFO("5pipes: center of roi x=%f, y=%f, z=%f", center_x, center_y, center_z);
 
+        std::cout << "header of cam cloud" << input_cloud->header.frame_id << std::endl;
         for (int i = 0; i < input_cloud->size(); i++){
             pcl::PointXYZ p = input_cloud->at(i);
             float x = p.data[0];
             float y = p.data[1];
             float z = p.data[2];
             float dist = std::sqrt(std::pow(center_x-x,2) + std::pow(center_y-y,2) + std::pow(center_z-z,2));
-            ROS_INFO("dist = %f, radius = %f", dist, radius);
-            if (dist < radius){
+            if (dist < radius && dist > 0){
                 cloud_roi->push_back(p);
             }
         }
@@ -213,12 +231,13 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 
 
     //TODO from here on cloud_roi should be used instead of input cloud
-    if (cloud_roi->size() < 100){
-        processCloud_v2 = input_cloud;
+    if (cloud_roi->size() > 100){
+        processCloud_v2 = cloud_roi;
+        ROS_INFO("using ROI cloud");
     }
     else{
-        processCloud_v2=cloud_roi;
-        ROS_INFO("ROI could too small, using input cloud instead");
+        processCloud_v2=input_cloud;
+        ROS_INFO("ROI cloud %i too small, using input cloud instead, size = %i", cloud_roi->size(), input_cloud->size());
     }
     pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
@@ -252,18 +271,19 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         extract.setInputCloud (processCloud_v2);
         extract.setIndices (inliers);
         extract.setNegative(true);
-        extract.filter (*cloud_withouth_planes);
-        cloud_withouth_planes->header.frame_id=worldFrame_;
-        processCloud_v2=cloud_withouth_planes;
+        extract.filter (*cloud_without_planes);
+        cloud_without_planes->header.frame_id=worldFrame_;
+        processCloud_v2=cloud_without_planes;
 
     }while(1);
 
-    ROS_DEBUG("ouput plane size: %d", (int)output_cloud_plane_seg->size());
-    cloud_without_planes_pub_debug_.publish(cloud_withouth_planes);
+    ROS_INFO("ouput plane size: %d", (int)output_cloud_plane_seg->size());
+    cloud_without_planes_pub_debug_.publish(cloud_without_planes);
 
     // clustering
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
-    tree->setInputCloud (cloud_withouth_planes);
+    cloud_without_planes = cleanPointCloud(cloud_without_planes);
+    tree->setInputCloud (cloud_without_planes);
 
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
@@ -271,15 +291,15 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     ec.setMinClusterSize (minClusterSize_);
     ec.setMaxClusterSize (maxClusterSize_);
     ec.setSearchMethod (tree);
-    ec.setInputCloud (cloud_withouth_planes);
+    ec.setInputCloud (cloud_without_planes);
     ec.extract (cluster_indices);
 
     ROS_DEBUG("number cluster: %d", (int)cluster_indices.size());
 
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZI>);
-    cloud_cluster->header.frame_id=cloud_withouth_planes->header.frame_id;
+    cloud_cluster->header.frame_id=cloud_without_planes->header.frame_id;
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster_centers (new pcl::PointCloud<pcl::PointXYZ>);
-    cloud_cluster_centers->header.frame_id=cloud_withouth_planes->header.frame_id;
+    cloud_cluster_centers->header.frame_id=cloud_without_planes->header.frame_id;
     int j = 0;
     double sum_x=0;
     double sum_y=0;
@@ -292,9 +312,9 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         sum_z=0;
         for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit){
             pcl::PointXYZI pushback;
-            pushback.x=cloud_withouth_planes->points[*pit].x;
-            pushback.y=cloud_withouth_planes->points[*pit].y;
-            pushback.z=cloud_withouth_planes->points[*pit].z;
+            pushback.x=cloud_without_planes->points[*pit].x;
+            pushback.y=cloud_without_planes->points[*pit].y;
+            pushback.z=cloud_without_planes->points[*pit].z;
             pushback.intensity=j;
             cloud_cluster->points.push_back (pushback);
             sum_x=sum_x + pushback.x;
@@ -361,7 +381,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 
     // get position of clusters / cylinder
     pcl::PointCloud<pcl::PointXYZ>::Ptr start_check_positions (new pcl::PointCloud<pcl::PointXYZ>);
-    start_check_positions->header.frame_id=cloud_withouth_planes->header.frame_id;
+    start_check_positions->header.frame_id=cloud_without_planes->header.frame_id;
 
     pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
     kdtree.setInputCloud (cloud_cluster_centers);
@@ -431,20 +451,17 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         Eigen::AngleAxisf pitchAngle(pitch, Eigen::Vector3f::UnitX());
 
         Eigen::Quaternion<float> quat = rollAngle * yawAngle * pitchAngle;
-       // Eigen::Quaternion<float> quat = Eigen::Quaternion<float>::FromTwoVectors(axis, poseOrientation);
-        //quat = Eigen::AngleAxis<float>(0, poseOrientation);
         ROS_DEBUG("posequaternion x=%f, y=%f, z=%f, w=%f", quat.x(), quat.y(), quat.z(), quat.w());
         ROS_DEBUG("pose x=%f, y=%f, z=%f", centerPoint.x, centerPoint.y, centerPoint.z);
         hector_worldmodel_msgs::PosePercept pp;
         pp.header.frame_id= start_check_positions->header.frame_id;
-        pp.header.stamp= srv.response.cloud.header.stamp;
+        pp.header.stamp= ros::Time(0);
         pp.info.class_id= "pipes";
         pp.info.class_support=1;
         pp.info.object_support=1;
         pp.pose.pose.position.x= centerPoint.x;
         pp.pose.pose.position.y= centerPoint.y;
         pp.pose.pose.position.z= centerPoint.z;
-  //    pp.pose.pose.orientation.x= pp.pose.pose.orientation.y = pp.pose.pose.orientation.z= 0;
         pp.pose.pose.orientation.x= quat.x();
         pp.pose.pose.orientation.y= quat.y();
         pp.pose.pose.orientation.z= quat.z();
