@@ -24,6 +24,7 @@ find_package(catkin REQUIRED COMPONENTS
     hector_perception_msgs
     grid_map_msgs
     grid_map_ros
+    hector_worldmodel_msgs
 )
 generate_dynamic_reconfigure_options(config/HectorRailsConfig.cfg)
 

@@ -1,8 +1,8 @@
-passThroughXMin: 0.1
-passThroughYMin: 0.1
+passThroughXMin: -2
+passThroughYMin: -2
 passThroughZMin: 0.1
-passThroughXMax: 0.1
-passThroughYMax: 0.0
+passThroughXMax: 2
+passThroughYMax: 2
 passThroughZMax: 2.0
 voxelGridX: 0.05
 voxelGridY: 0.05
