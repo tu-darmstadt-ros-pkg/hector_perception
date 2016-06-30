@@ -428,7 +428,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         hector_worldmodel_msgs::PosePercept pp;
         pp.header.frame_id= start_check_positions->header.frame_id;
         pp.header.stamp= srv.response.cloud.header.stamp;
-        pp.info.class_id= "start_check_pipe";
+        pp.info.class_id= "pipes";
         pp.info.class_support=1;
         pp.info.object_support=1;
         pp.pose.pose.position.x= centerPoint.x;
