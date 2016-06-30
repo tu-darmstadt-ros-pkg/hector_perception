@@ -176,8 +176,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
       ROS_ERROR("Transform lookup failed in get 5pipes detection server goal callback: %s",e.what());
     }
 
-
-    // use region of interest in front of the robot
+    // use ROI = region of interest in front of the robot
     if (robot_pose_init){
         robot_rotation.x() = transform.getRotation().x();
         robot_rotation.y() = transform.getRotation().y();
@@ -198,6 +197,9 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         p.vec() = xAxis;
         Eigen::Quaternionf rotatedP = q * p * q.inverse();
         Eigen::Vector3f robot_x_axis = rotatedP.vec();
+        robot_x_axis[2] = 0;
+        robot_x_axis.normalize();
+        Eigen::Vector3f robot_y_axis = Eigen::Vector3f(robot_x_axis[1], -1*robot_x_axis[0], 0);
         ROS_INFO("5pipes: robot orientation towards x=%f, y=%f, z=%f", robot_x_axis[0], robot_x_axis[1], robot_x_axis[2]);
         // region of interest from robot position
         // bounding box TODO, first try out with circular bounding box
@@ -205,21 +207,39 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         // float center_dist_y = 0; // unused because 0.
         float center_z = 0.7;
         float radius = 0.5;
+        float x_min_dist = 0.1;
+        float x_max_dist = 1.5;
+        float y_tolarance = 0.4;
+        float z_min_dist = 0.2;
+        float z_max_dist = 1.2;
 
         float center_x = robot_position[0] + robot_x_axis[0]*center_dist_x;
         float center_y = robot_position[1] + robot_x_axis[1]*center_dist_x;
         ROS_INFO("5pipes: center of roi x=%f, y=%f, z=%f", center_x, center_y, center_z);
-
-        std::cout << "header of cam cloud" << input_cloud->header.frame_id << std::endl;
         for (int i = 0; i < input_cloud->size(); i++){
             pcl::PointXYZ p = input_cloud->at(i);
+            float x = p.x; float y = p.y; float z = p.z;
+            // using scalar product
+            float x_dist = robot_x_axis[0]*x + robot_x_axis[1]*y; // using scalar product
+            bool inx = x_dist > x_min_dist && x_dist < x_max_dist;
+            float y_dist = std::abs(robot_y_axis[0]*x + robot_y_axis[1]*y);
+            bool iny = y_dist < y_tolarance;
+            float z_dist = z - robot_position[2];
+            bool inz = z_dist > z_min_dist && z_dist < z_max_dist;
+            if (inx && iny && inz){
+                cloud_roi->push_back(p);
+            }
+
+
+            // circular box start
+            /*pcl::PointXYZ p = input_cloud->at(i);
             float x = p.data[0];
             float y = p.data[1];
             float z = p.data[2];
             float dist = std::sqrt(std::pow(center_x-x,2) + std::pow(center_y-y,2) + std::pow(center_z-z,2));
             if (dist < radius && dist > 0){
                 cloud_roi->push_back(p);
-            }
+            }*/ // this is for circular box end
         }
         ROS_INFO("roi_cloud computed. size = %i", cloud_roi->size());
     }
@@ -376,6 +396,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         }
         ROS_DEBUG("end filtering clusters, size = %i", cluster_centers_filtered->size());
     }
+    ROS_INFO("cluster_centers_filtered unused");
     // TODO use the cloud processed
 
 
@@ -438,11 +459,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
                                                  sortedListOfCenters[0].z - sortedListOfCenters[2].z);
         Eigen::Vector3f poseOrientation = v0.cross(v1);
         poseOrientation.normalize();
-        // TODO calc roll pitch yaw (take into account that plane is already parallel to Z and generate quaternion from it)
         ROS_INFO("success, poseOrientation x=%f, y=%f, z=%f", poseOrientation[0], poseOrientation[1], poseOrientation[2]);
-        // cross product to get pose (this might have to be inverted, so check for robot pose.
-        // TODO atan2(y,x)
-        //Eigen::Vector3f axis(1,1,1);
         float roll = 0;
         float pitch = acos(poseOrientation.dot(Eigen::Vector3f::UnitZ()));
         float yaw = 0;
@@ -484,7 +501,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         five_pipes_pos_pub_.publish(start_check_positions);
     }
     else {
-        ROS_WARN("no radius search with 5 cluster centers found.");
+        ROS_WARN("no radius search with %i (or more?) cluster centers found.", min_cluster_centers_start_pose);
     }
 
 
