@@ -1,3 +1,5 @@
+//author Benedikt Lückenrath, Johannes Schubert
+
 #ifndef Hector_Five_Pipes_Detection_H
 #define Hector_Five_Pipes_Detection_H
 
@@ -56,13 +58,10 @@ public:
     virtual ~HectorFivePipesDetection();
 
 protected:
-    ros::Publisher orginal_pub_debug_;
+    ros::Publisher input_cloud_publisher;
     ros::Publisher filtered_cloud_debug_;
     ros::Publisher roi_debug_pub_;
-    ros::Publisher after_voxel_grid_pub_debug_;
     ros::Publisher cloud_without_planes_pub_debug_;
-    ros::Publisher plane_pub_debug_;
-    ros::Publisher cloud_filtered_publisher_;
     ros::Publisher cluster_pub_debug_;
     ros::Publisher five_pipes_pos_pub_;
     ros::Publisher cluster_centers_pub_;
@@ -71,7 +70,8 @@ protected:
     ros::Publisher endPoseDebugPCL_;
 
 
-    ros::Subscriber pointcloud_sub_;
+    ros::Subscriber realsense_pointcloud_sub_;
+    ros::Subscriber LIDAR_pointcloud_sub_;
  //  ros::ServiceClient pointcloud_srv_client_;
 
  //   ros::Subscriber tf_sub_;
@@ -84,8 +84,10 @@ protected:
     tf::TransformListener tf_listener;
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud;
+    bool using_LIDAR;
+    bool PCL_initiated_by_realsense;
     void PclCallback(const sensor_msgs::PointCloud2 &pc_msg);
-
+    void LIDAR_PclCallback(const sensor_msgs::PointCloud2 &pc_msg);
   //  void TfCallback(const tf2_msgs::TFMessage &tf_msg);
 
     void executeCallback(const hector_perception_msgs::DetectObjectGoalConstPtr& goal);

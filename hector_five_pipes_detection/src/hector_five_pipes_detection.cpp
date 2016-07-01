@@ -1,3 +1,18 @@
+/*author Benedikt Lückenrath, Johannes Schubert
+ *
+ * input: Pointcloud from Realsense or Pointcloud from 3D Laserscanner and tf.
+ * output: PosePercept with middle of exactly 5 pipes, in the data of the percept are xyzxyzxyzxyzxyz listed of all points.
+ *
+ * how it (should) work:
+ * -use realsense data if available else laserscancloud
+ * -use ROI (region of interest) if the cloud comes from laserscan
+ * -remove planes
+ * -find all clusters
+ * -find 5 close by clusters
+ * -publish middle if found else return false.
+ */
+
+
 #include <hector_five_pipes_detection/hector_five_pipes_detection.h>
 
 namespace hector_five_pipes_detection{
@@ -6,33 +21,15 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     ros::NodeHandle nh("");
 
     //load params from yaml file else maybe they come from cfg.. ?
-    nh.param("x_min_dist_BB", x_min_dist_BB_, 0.1f);
-    nh.param("x_max_dist_BB", x_max_dist_BB_, 1.4f);
-    nh.param("y_tolarance_BB", y_tolarance_BB_, 0.4f);
-    nh.param("z_min_dist_BB", z_min_dist_BB_, 0.1f);
-    nh.param("z_max_dist_BB", z_max_dist_BB_, 1.2f);
-    nh.param("planeSegDistTresh", planeSegDistTresh_, 0.3f);
-    nh.param("numberPointsThresh", numberPointsThresh_, 1000);
-    nh.param("clusterTolerance", clusterTolerance_, 0.03f);
-    nh.param("minClusterSize", minClusterSize_, 10);
-    nh.param("maxClusterSize", maxClusterSize_, 1000);
-    nh.param("searchRadius", searchRadius_, 0.2f);
-    nh.param("filter_radius", filter_radius_, 0.03f);
-    nh.param("filter_cloud_n_neighbors", filter_cloud_n_neighbors_, 50);
-    nh.param("filter_cloud_max_stdev", filter_cloud_max_stdev_, 1.0f);
-
     worldFrame_= std::string("/world");
 
     dynamic_recf_type = boost::bind(&HectorFivePipesDetection::dynamic_recf_cb, this, _1, _2);
     dynamic_recf_server.setCallback(dynamic_recf_type);
 
-    orginal_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/input_cloud_debug", 100, true);
+    input_cloud_publisher = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/AA_input_cloud", 100, true);
     filtered_cloud_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/filtered_cloud_debug", 100, true);
     roi_debug_pub_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/pcl_roi", 100, true);
-    after_voxel_grid_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/after_voxel_gird_debug", 100, true);
-    cloud_without_planes_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/final_cloud_pub_debug", 100, true);
-    plane_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/plane_pub_debug", 100, true);
-    cloud_filtered_publisher_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/cylinder_cloud_debug", 100, true);
+    cloud_without_planes_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/cloud_without_planes", 100, true);
     cluster_pub_debug_= nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/hector_five_pipe_detection/cluster_cloud_debug", 100, true);
     five_pipes_pos_pub_= nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/hector_five_pipe_detection/five_pipes_positions", 100, true);
     cluster_centers_pub_= nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/hector_five_pipe_detection/cloud_centers", 100, true);
@@ -40,16 +37,19 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     posePercept_debug_pub_ = nh.advertise<geometry_msgs::PoseStamped>("/hector_five_pipe_detection/pose_debug", 0); // oder posePercept stamped
     endPoseDebugPCL_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/endPoseDebugOrientation", 100, true);
 
-    pointcloud_sub_ = nh.subscribe("/arm_rgbd_cam/depth/points", 10, &HectorFivePipesDetection::PclCallback, this);
+    realsense_pointcloud_sub_ = nh.subscribe("/arm_rgbd_cam/depth/points", 10, &HectorFivePipesDetection::PclCallback, this);
+    LIDAR_pointcloud_sub_ = nh.subscribe("/worldmodel_main/pointcloud_vis", 10, &HectorFivePipesDetection::LIDAR_PclCallback, this);
 
     ros::NodeHandle pnh("~");
     detection_object_server_.reset(new actionlib::SimpleActionServer<hector_perception_msgs::DetectObjectAction>(pnh, "detect", boost::bind(&HectorFivePipesDetection::executeCallback, this, _1) ,false));
     detection_object_server_->start();
 
+    using_LIDAR = false;
+    PCL_initiated_by_realsense = false;
     robot_pose_init = false;
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr first_cloud(new pcl::PointCloud<pcl::PointXYZ>());
-    input_cloud = first_cloud;
+    input_cloud = first_cloud; // empty
 
 }
 
@@ -61,10 +61,26 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2& pc_ms
     pcl::PointCloud<pcl::PointXYZ>::Ptr current_pcl(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::fromROSMsg(pc_msg, *current_pcl);
     if(!current_pcl->empty()){
+        PCL_initiated_by_realsense = true;
         input_cloud=current_pcl;
+        using_LIDAR = false;
     }
     else{
-        ROS_INFO("camera pcl is empty keeping latest non empty cloud for pipe detection");
+        ROS_INFO("camera pcl is empty keeping last non empty cloud for pipe detection");
+    }
+}
+
+void HectorFivePipesDetection::LIDAR_PclCallback(const sensor_msgs::PointCloud2& pc_msg){
+    if (PCL_initiated_by_realsense) // use realsense data if available
+        return;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr current_pcl(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::fromROSMsg(pc_msg, *current_pcl);
+    if(!current_pcl->empty()){
+        input_cloud=current_pcl;
+        using_LIDAR = true;
+    }
+    else{
+        ROS_INFO("LIDAR pcl is empty keeping last cloud for pipe detection");
     }
 }
 
@@ -91,48 +107,21 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr HectorFivePipesDetection::cleanPointCloud( p
 
 bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const geometry_msgs::Point& max, const std::string& frame_id)
 {
-    // maybe better as service
-    std::cout<<"frame: "<< frame_id<<std::endl;
-    bool success = false;
+    input_cloud_publisher.publish(input_cloud); // to be able to check
+    if (using_LIDAR)
+        ROS_INFO("starting 5 pipe detection with LASERSCAN data, pclsize = %i", input_cloud->size());
+    else
+        ROS_INFO("starting 5 pipe detection with REALSENSE data, pclsize = %i", input_cloud->size());
 
     ros::NodeHandle n("");
-  //  pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-
-    //pointcloud_srv_client_ = n.serviceClient<vigir_perception_msgs::PointCloudRegionRequest>("/worldmodel_main/pointcloud_roi");
-//    vigir_perception_msgs::PointCloudRegionRequest srv;
-//    vigir_perception_msgs::EnvironmentRegionRequest erreq;
-//    if(min.x != max.x && min.y != max.y && min.z != max.z && frame_id.empty()){
-//        //bouding box parameter from action
-//        erreq.header.frame_id=frame_id;
-//        erreq.bounding_box_max.x=max.x;
-//        erreq.bounding_box_max.y=max.y;
-//        erreq.bounding_box_max.z=max.z;
-//        erreq.bounding_box_min.x=min.x;
-//        erreq.bounding_box_min.y=min.y;
-//        erreq.bounding_box_min.z=min.z;
-//    }else{
-//        //default parameter
-//        erreq.header.frame_id=worldFrame_;
-//        erreq.bounding_box_max.x=10;
-//        erreq.bounding_box_max.y=10;
-//        erreq.bounding_box_max.z=passThroughZMax_;
-//        erreq.bounding_box_min.x=-10;
-//        erreq.bounding_box_min.y=-10;
-//        erreq.bounding_box_min.z=passThroughZMin_;
-//    }
-//    erreq.resolution=0;  //0 <=> default
-//    erreq.request_augment=0;
-//    srv.request.region_req=erreq;
-//    srv.request.aggregation_size=500;
+    bool success = false;
     if (input_cloud->empty()){
-    //    ROS_INFO("input cloud data size is 0 // normal for no test");
-   //     if(!pointcloud_srv_client_.call(srv)){
-            ROS_ERROR("input cloud is empty (no data from /arm_rgbd_cam/depth/points reveived");
-            return success;
-        }
-    input_cloud = cleanPointCloud(input_cloud);
+        ROS_ERROR("input cloud is empty (no data from /arm_rgbd_cam/depth/points and no data from /worldmodel_main/pointcloud_vis reveived");
+        return false;
+    }
 
-    ROS_INFO("transforming cloud");
+    input_cloud = cleanPointCloud(input_cloud);
+    // transforming cloud
     tf::StampedTransform transform_cloud_to_world;
     try{
         ros::Time time = ros::Time(0);
@@ -176,7 +165,6 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud_plane_seg(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_without_planes(new pcl::PointCloud<pcl::PointXYZ>());
 
-    orginal_pub_debug_.publish(input_cloud);
     for (int i = 0; i < input_cloud->size(); i++){
         pcl::PointXYZ p = input_cloud->at(i);
         cloud_roi->push_back(p);
@@ -194,8 +182,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     }
 
     // use ROI = region of interest in front of the robot
-    bool useROI = false;
-    if (robot_pose_init && useROI){
+    if (robot_pose_init && using_LIDAR){ // use ROI if laserscan
         robot_rotation.x() = transform.getRotation().x();
         robot_rotation.y() = transform.getRotation().y();
         robot_rotation.z() = transform.getRotation().z();
