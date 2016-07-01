@@ -29,6 +29,8 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/filter.h>
+#include <pcl/point_types.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 
 #include <sensor_msgs/PointCloud2.h>
 #include <pcl/kdtree/kdtree.h>
@@ -55,6 +57,7 @@ public:
 
 protected:
     ros::Publisher orginal_pub_debug_;
+    ros::Publisher filtered_cloud_debug_;
     ros::Publisher roi_debug_pub_;
     ros::Publisher after_voxel_grid_pub_debug_;
     ros::Publisher cloud_without_planes_pub_debug_;
@@ -91,23 +94,21 @@ protected:
 
 private:
     //params
-    double passThroughXMin_;
-    double passThroughYMin_;
-    double passThroughZMin_;
-    double passThroughXMax_;
-    double passThroughYMax_;
-    double passThroughZMax_;
-    double voxelGridX_;
-    double voxelGridY_;
-    double voxelGridZ_;
-    double planeSegDistTresh_;
-    double minRadius_;
-    double maxRadius_;
-    double clusterTolerance_;
-    double searchRadius_;
+    float x_min_dist_BB_;
+    float x_max_dist_BB_;
+    float y_tolarance_BB_;
+    float z_min_dist_BB_;
+    float z_max_dist_BB_;
+    float planeSegDistTresh_;
+    int numberPointsThresh_;
+    float clusterTolerance_;
     int minClusterSize_;
     int maxClusterSize_;
-    int numberPointsThresh_;
+    float searchRadius_;
+    float filter_radius_;
+    int filter_cloud_n_neighbors_;
+    float filter_cloud_max_stdev_;
+
     std::string worldFrame_;
 
     //Dynamic reconfigure

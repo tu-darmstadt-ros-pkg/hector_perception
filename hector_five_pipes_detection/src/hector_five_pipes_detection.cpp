@@ -5,29 +5,29 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     ROS_DEBUG ("HectorFivePipesDetection started");
     ros::NodeHandle nh("");
 
-    //load params
-    nh.param("passThroughXMin", passThroughXMin_, 0.1);
-    nh.param("passThroughYMin", passThroughYMin_, 0.1);
-    nh.param("passThroughZMin", passThroughZMin_, 0.1);
-    nh.param("passThroughXMax", passThroughXMax_, 0.1);
-    nh.param("passThroughYMax", passThroughYMax_, 0.0);
-    nh.param("passThroughZMax", passThroughZMax_, 2.0);
-    nh.param("voxelGridX", voxelGridX_, 0.05);
-    nh.param("voxelGridY", voxelGridY_, 0.05);
-    nh.param("voxelGridZ", voxelGridZ_, 0.05);
-    nh.param("planeSegDistTresh", planeSegDistTresh_, 0.03);
+    //load params from yaml file else maybe they come from cfg.. ?
+    nh.param("x_min_dist_BB", x_min_dist_BB_, 0.1f);
+    nh.param("x_max_dist_BB", x_max_dist_BB_, 1.4f);
+    nh.param("y_tolarance_BB", y_tolarance_BB_, 0.4f);
+    nh.param("z_min_dist_BB", z_min_dist_BB_, 0.1f);
+    nh.param("z_max_dist_BB", z_max_dist_BB_, 1.2f);
+    nh.param("planeSegDistTresh", planeSegDistTresh_, 0.3f);
     nh.param("numberPointsThresh", numberPointsThresh_, 1000);
-    nh.param("clusterTolerance", clusterTolerance_, 0.03);
+    nh.param("clusterTolerance", clusterTolerance_, 0.03f);
     nh.param("minClusterSize", minClusterSize_, 10);
     nh.param("maxClusterSize", maxClusterSize_, 1000);
-    nh.param("searchRadius", searchRadius_, 0.2);
+    nh.param("searchRadius", searchRadius_, 0.2f);
+    nh.param("filter_radius", filter_radius_, 0.03f);
+    nh.param("filter_cloud_n_neighbors", filter_cloud_n_neighbors_, 50);
+    nh.param("filter_cloud_max_stdev", filter_cloud_max_stdev_, 1.0f);
 
-    nh.param("worldFrame", worldFrame_, std::string("/world"));
+    worldFrame_= std::string("/world");
 
     dynamic_recf_type = boost::bind(&HectorFivePipesDetection::dynamic_recf_cb, this, _1, _2);
     dynamic_recf_server.setCallback(dynamic_recf_type);
 
     orginal_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/input_cloud_debug", 100, true);
+    filtered_cloud_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/filtered_cloud_debug", 100, true);
     roi_debug_pub_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/pcl_roi", 100, true);
     after_voxel_grid_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/after_voxel_gird_debug", 100, true);
     cloud_without_planes_pub_debug_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/final_cloud_pub_debug", 100, true);
@@ -63,7 +63,7 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2& pc_ms
         input_cloud=current_pcl;
     }
     else{
-        ROS_INFO("camera pcl is empty keepig latest non empty cloud for pipe detection");
+        ROS_INFO("camera pcl is empty keeping latest non empty cloud for pipe detection");
     }
 }
 
@@ -130,6 +130,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
             return success;
         }
     input_cloud = cleanPointCloud(input_cloud);
+
     ROS_INFO("transforming cloud");
     tf::StampedTransform transform_cloud_to_world;
     try{
@@ -143,6 +144,21 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         ROS_ERROR("Lookup Transform failed: %s",ex.what());
         return false;
     }
+
+    // filter the cloud;
+    bool filtercloud = false;
+    if (filter_cloud_max_stdev_ > 0.00001 && filtercloud){ // do not use filter if stdev == 0
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>());
+        pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+        sor.setInputCloud (input_cloud);
+        sor.setMeanK (filter_cloud_n_neighbors_);
+        sor.setStddevMulThresh (filter_cloud_max_stdev_);
+        sor.filter (*cloud_filtered);
+        ROS_INFO("cloud filtered from size %i to %i. n_neighbors = %i and std = %f", input_cloud->size(), cloud_filtered->size(), filter_cloud_n_neighbors_, filter_cloud_max_stdev_);
+        input_cloud = cloud_filtered;
+        filtered_cloud_debug_.publish(input_cloud);
+    }
+
 
     Eigen::Affine3d to_world_;
     tf::transformTFToEigen(transform_cloud_to_world, to_world_);
@@ -177,7 +193,8 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     }
 
     // use ROI = region of interest in front of the robot
-    if (robot_pose_init){
+    bool useROI = false;
+    if (robot_pose_init && useROI){
         robot_rotation.x() = transform.getRotation().x();
         robot_rotation.y() = transform.getRotation().y();
         robot_rotation.z() = transform.getRotation().z();
@@ -202,30 +219,24 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         Eigen::Vector3f robot_y_axis = Eigen::Vector3f(robot_x_axis[1], -1*robot_x_axis[0], 0);
         ROS_INFO("5pipes: robot orientation towards x=%f, y=%f, z=%f", robot_x_axis[0], robot_x_axis[1], robot_x_axis[2]);
         // region of interest from robot position
-        // bounding box TODO, first try out with circular bounding box
-        float center_dist_x = 1.0;
-        // float center_dist_y = 0; // unused because 0.
-        float center_z = 0.7;
-        float radius = 0.5;
-        float x_min_dist = 0.1;
-        float x_max_dist = 1.5;
-        float y_tolarance = 0.4;
-        float z_min_dist = 0.2;
-        float z_max_dist = 1.2;
+        //float radius = 0.5;
+        //float center_x = robot_position[0] + robot_x_axis[0]*center_dist_x;
+        //float center_y = robot_position[1] + robot_x_axis[1]*center_dist_x;
 
-        float center_x = robot_position[0] + robot_x_axis[0]*center_dist_x;
-        float center_y = robot_position[1] + robot_x_axis[1]*center_dist_x;
-        ROS_INFO("5pipes: center of roi x=%f, y=%f, z=%f", center_x, center_y, center_z);
+        float BB_center_x = robot_x_axis[0]*(x_max_dist_BB_-x_min_dist_BB_) + robot_x_axis[1]*0;
+        float BB_center_y = robot_y_axis[0]*(x_max_dist_BB_-x_min_dist_BB_) + robot_y_axis[1]*0;
+        float BB_center_z = z_max_dist_BB_ - z_min_dist_BB_+ robot_position[2];
+        ROS_INFO("5pipes: center of roi BB x=%f, y=%f, z=%f", BB_center_x, BB_center_y, BB_center_z);
         for (int i = 0; i < input_cloud->size(); i++){
             pcl::PointXYZ p = input_cloud->at(i);
             float x = p.x; float y = p.y; float z = p.z;
             // using scalar product
             float x_dist = robot_x_axis[0]*x + robot_x_axis[1]*y; // using scalar product
-            bool inx = x_dist > x_min_dist && x_dist < x_max_dist;
+            bool inx = x_dist > x_min_dist_BB_ && x_dist < x_max_dist_BB_;
             float y_dist = std::abs(robot_y_axis[0]*x + robot_y_axis[1]*y);
-            bool iny = y_dist < y_tolarance;
+            bool iny = y_dist < y_tolarance_BB_;
             float z_dist = z - robot_position[2];
-            bool inz = z_dist > z_min_dist && z_dist < z_max_dist;
+            bool inz = z_dist > z_min_dist_BB_ && z_dist < z_max_dist_BB_;
             if (inx && iny && inz){
                 cloud_roi->push_back(p);
             }
@@ -409,7 +420,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 
     std::vector<pcl::PointXYZ> sortedListOfCenters;
 
-    int min_cluster_centers_start_pose = 4; // PARAM
+    int min_cluster_centers_start_pose = 5; // PARAM
     // find mid cluster center
     pcl::PointXYZ centerPoint = pcl::PointXYZ(0, 0, 0);
     for(int i=0; i< cloud_cluster_centers->points.size(); i++){
@@ -420,7 +431,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         std::vector<float> pointRadiusSquaredDistance;
 
         // if cluster center in the middle of 4 other cluster centers
-        if ( kdtree.radiusSearch (searchPoint, searchRadius_, pointIdxRadiusSearch, pointRadiusSquaredDistance) >= min_cluster_centers_start_pose )
+        if ( kdtree.radiusSearch (searchPoint, searchRadius_, pointIdxRadiusSearch, pointRadiusSquaredDistance) == min_cluster_centers_start_pose )
         {
             ROS_INFO("5pipes: %i or more centers in radius => start check positions found", min_cluster_centers_start_pose);
             pcl::PointXYZ p;
@@ -461,13 +472,14 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         poseOrientation.normalize();
         ROS_INFO("success, poseOrientation x=%f, y=%f, z=%f", poseOrientation[0], poseOrientation[1], poseOrientation[2]);
         float roll = 0;
-        float pitch = acos(poseOrientation.dot(Eigen::Vector3f::UnitZ()));
-        float yaw = 0;
-        Eigen::AngleAxisf rollAngle(roll, Eigen::Vector3f::UnitZ());
-        Eigen::AngleAxisf yawAngle(yaw, Eigen::Vector3f::UnitY());
-        Eigen::AngleAxisf pitchAngle(pitch, Eigen::Vector3f::UnitX());
+        float pitch = 0;
+        float yaw = acos(poseOrientation.dot(Eigen::Vector3f::UnitZ()));
+        ROS_INFO("for quaternion: yawAngle = %f, lvec1= %f, lvec2= %f", yaw, poseOrientation.size());
+        Eigen::AngleAxisf rollTransform(roll, Eigen::Vector3f::UnitX()); // should do nothing
+        Eigen::AngleAxisf yawTransform(yaw, Eigen::Vector3f::UnitZ());
+        Eigen::AngleAxisf pitchTransform(pitch, Eigen::Vector3f::UnitY()); // shold do nothing
 
-        Eigen::Quaternion<float> quat = rollAngle * yawAngle * pitchAngle;
+        Eigen::Quaternionf quat = Eigen::Quaternionf(yawTransform);
         ROS_DEBUG("posequaternion x=%f, y=%f, z=%f, w=%f", quat.x(), quat.y(), quat.z(), quat.w());
         ROS_DEBUG("pose x=%f, y=%f, z=%f", centerPoint.x, centerPoint.y, centerPoint.z);
         hector_worldmodel_msgs::PosePercept pp;
@@ -498,6 +510,8 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         posePercept_debug_pub_.publish(pose_debug);
         ROS_INFO("PosePercept startcheck postion pipes published");
 
+
+
         five_pipes_pos_pub_.publish(start_check_positions);
     }
     else {
@@ -510,21 +524,20 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 
 void HectorFivePipesDetection::dynamic_recf_cb(hector_five_pipes_detection::HectorFivePipesDetectionConfig &config, uint32_t level)
 {
-    passThroughXMin_= config.passThroughXMin;
-    passThroughYMin_= config.passThroughYMin;
-    passThroughZMin_= config.passThroughZMin;
-    passThroughXMax_= config.passThroughXMax;
-    passThroughYMax_= config.passThroughYMax;
-    passThroughZMax_= config.passThroughZMax;
-    voxelGridX_= config.voxelGridX;
-    voxelGridY_= config.voxelGridY;
-    voxelGridZ_= config.voxelGridZ;
+    x_min_dist_BB_= config.x_min_dist_BB;
+    x_max_dist_BB_= config.x_max_dist_BB;
+    y_tolarance_BB_= config.y_tolarance_BB;
+    z_min_dist_BB_= config.z_min_dist_BB;
+    z_max_dist_BB_= config.z_max_dist_BB;
     planeSegDistTresh_= config.planeSegDistTresh;
     numberPointsThresh_= config.numberPointsThresh;
     clusterTolerance_= config.clusterTolerance;
     minClusterSize_= config.minClusterSize;
     maxClusterSize_= config.maxClusterSize;
     searchRadius_= config.searchRadius;
+    filter_radius_ = config.filter_radius;
+    filter_cloud_n_neighbors_ = config.filter_cloud_n_neighbors;
+    filter_cloud_max_stdev_ = config.filter_cloud_max_stdev;
 
 }
 
