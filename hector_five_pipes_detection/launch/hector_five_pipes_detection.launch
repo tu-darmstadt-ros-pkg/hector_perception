@@ -1,5 +1,4 @@
 <?xml version="1.0"?>
 <launch>
 <node name="hector_five_pipes_detection_node" pkg="hector_five_pipes_detection" type="hector_five_pipes_detection_node" respawn="true" output="screen"/>
-<rosparam file="$(find hector_five_pipes_detection)/config/params.yaml" />
 </launch>

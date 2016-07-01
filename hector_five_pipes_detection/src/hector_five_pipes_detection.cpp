@@ -20,7 +20,6 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     ROS_DEBUG ("HectorFivePipesDetection started");
     ros::NodeHandle nh("");
 
-    //load params from yaml file else maybe they come from cfg.. ?
     worldFrame_= std::string("/world");
 
     dynamic_recf_type = boost::bind(&HectorFivePipesDetection::dynamic_recf_cb, this, _1, _2);
@@ -252,7 +251,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     //TODO from here on cloud_roi should be used instead of input cloud
     if (cloud_roi->size() > 100){
         processCloud_v2 = cloud_roi;
-        ROS_INFO("using ROI cloud");
+        ROS_DEBUG("using ROI cloud");
     }
     else{
         processCloud_v2=input_cloud;
@@ -296,7 +295,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 
     }while(1);
 
-    ROS_INFO("ouput plane size: %d", (int)output_cloud_plane_seg->size());
+    ROS_DEBUG("ouput plane size: %d", (int)output_cloud_plane_seg->size());
     cloud_without_planes_pub_debug_.publish(cloud_without_planes);
 
     // clustering
@@ -395,7 +394,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         }
         ROS_DEBUG("end filtering clusters, size = %i", cluster_centers_filtered->size());
     }
-    ROS_INFO("cluster_centers_filtered unused");
+    ROS_DEBUG("cluster_centers_filtered unused");
     // TODO use the cloud processed
 
 
