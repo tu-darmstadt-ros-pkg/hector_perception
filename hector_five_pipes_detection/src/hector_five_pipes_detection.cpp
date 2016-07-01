@@ -38,6 +38,7 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
     cluster_centers_pub_= nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/hector_five_pipe_detection/cloud_centers", 100, true);
     posePercept_pub_= nh.advertise<hector_worldmodel_msgs::PosePercept>("/worldmodel/pose_percept", 0);
     posePercept_debug_pub_ = nh.advertise<geometry_msgs::PoseStamped>("/hector_five_pipe_detection/pose_debug", 0); // oder posePercept stamped
+    endPoseDebugPCL_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("/hector_five_pipe_detection/endPoseDebugOrientation", 100, true);
 
     pointcloud_sub_ = nh.subscribe("/arm_rgbd_cam/depth/points", 10, &HectorFivePipesDetection::PclCallback, this);
 
@@ -443,7 +444,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
                 centerPoint.y= centerPoint.y + p.y;
                 centerPoint.z= centerPoint.z + p.z;
 
-                // fill sorted list of final centers
+                // fill sorted list of final centers // !!! NOT SORTED!!!!!
                 if (p.z > centerPoint.z)
                     sortedListOfCenters.insert(sortedListOfCenters.begin(),p);
                 else if (p.z < centerPoint.z)
@@ -472,14 +473,17 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         poseOrientation.normalize();
         ROS_INFO("success, poseOrientation x=%f, y=%f, z=%f", poseOrientation[0], poseOrientation[1], poseOrientation[2]);
         float roll = 0;
-        float pitch = 0;
-        float yaw = acos(poseOrientation.dot(Eigen::Vector3f::UnitZ()));
-        ROS_INFO("for quaternion: yawAngle = %f, lvec1= %f, lvec2= %f", yaw, poseOrientation.size());
+        float pitch = atan2(poseOrientation[2], poseOrientation[0]); //y
+        float yaw = atan2(poseOrientation[1], poseOrientation[0]); //z
+                //acos(poseOrientation.dot(Eigen::Vector3f::UnitZ()));
+        ROS_INFO("for quaternion: yawAngle = %f", yaw);
         Eigen::AngleAxisf rollTransform(roll, Eigen::Vector3f::UnitX()); // should do nothing
         Eigen::AngleAxisf yawTransform(yaw, Eigen::Vector3f::UnitZ());
-        Eigen::AngleAxisf pitchTransform(pitch, Eigen::Vector3f::UnitY()); // shold do nothing
+        Eigen::AngleAxisf pitchTransform(pitch, Eigen::Vector3f::UnitY());
 
-        Eigen::Quaternionf quat = Eigen::Quaternionf(yawTransform);
+        Eigen::Quaternionf quat1 = Eigen::Quaternionf(yawTransform);
+        Eigen::Quaternionf quat2 = Eigen::Quaternionf(pitchTransform);
+        Eigen::Quaternionf quat = quat1 *quat2;
         ROS_DEBUG("posequaternion x=%f, y=%f, z=%f, w=%f", quat.x(), quat.y(), quat.z(), quat.w());
         ROS_DEBUG("pose x=%f, y=%f, z=%f", centerPoint.x, centerPoint.y, centerPoint.z);
         hector_worldmodel_msgs::PosePercept pp;
@@ -495,6 +499,14 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         pp.pose.pose.orientation.y= quat.y();
         pp.pose.pose.orientation.z= quat.z();
         pp.pose.pose.orientation.w= quat.w();
+        std::vector <float>flatpointarray; // watch out for changing size of n pipes!!
+        for (int i = 0; i < sortedListOfCenters.size(); i++){
+            pcl::PointXYZ p = sortedListOfCenters[i];
+            flatpointarray.push_back(p.x);
+            flatpointarray.push_back(p.y);
+            flatpointarray.push_back(p.z);
+        }
+        pp.info.data = flatpointarray;
 
         geometry_msgs::PoseStamped pose_debug;
         pose_debug.header.frame_id = pp.header.frame_id;
@@ -510,7 +522,15 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
         posePercept_debug_pub_.publish(pose_debug);
         ROS_INFO("PosePercept startcheck postion pipes published");
 
-
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_orientation(new pcl::PointCloud<pcl::PointXYZ>());
+        cloud_orientation->header.frame_id = worldFrame_;
+        cloud_orientation->header.stamp = input_cloud->header.stamp;
+        float l = 0.1;
+        int n = 20;
+        for (int i = 0; i < n; i++){
+            cloud_orientation->push_back(pcl::PointXYZ(centerPoint.x + i*l*poseOrientation[0], centerPoint.y + i*l*poseOrientation[1], centerPoint.z + i*l*poseOrientation[2]));
+        }
+        endPoseDebugPCL_.publish(cloud_orientation);
 
         five_pipes_pos_pub_.publish(start_check_positions);
     }

@@ -68,6 +68,8 @@ protected:
     ros::Publisher cluster_centers_pub_;
     ros::Publisher posePercept_pub_;
     ros::Publisher posePercept_debug_pub_;
+    ros::Publisher endPoseDebugPCL_;
+
 
     ros::Subscriber pointcloud_sub_;
  //  ros::ServiceClient pointcloud_srv_client_;
