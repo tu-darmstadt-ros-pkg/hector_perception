@@ -279,35 +279,81 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     seg.setMethodType (pcl::SAC_RANSAC);
     seg.setDistanceThreshold (planeSegDistTresh_);
 
-    // plane segmentation
-    do{
-        seg.setInputCloud (processCloud_v2);
-        seg.segment (*inliers, *coefficients);
+    // work on processCloud_v2
+    bool plane_segmentation = false; // false = only ground away
+    if (plane_segmentation){
+        do{
+            seg.setInputCloud (processCloud_v2);
+            seg.segment (*inliers, *coefficients);
 
-        if (inliers->indices.size () == 0)
-        {
-            PCL_ERROR ("Could not estimate more planar models for the given dataset.");
+            if (inliers->indices.size () == 0)
+            {
+                PCL_ERROR ("Could not estimate more planar models for the given dataset.");
+            }
+
+            if(inliers->indices.size() < numberPointsThresh_){
+                break;
+            }
+            ROS_DEBUG("extract reset points");
+            pcl::ExtractIndices<pcl::PointXYZ> extract;
+            extract.setInputCloud (processCloud_v2);
+            extract.setIndices (inliers);
+            extract.setNegative(false);
+            extract.filter (*output_cloud_plane_seg);
+            output_cloud_plane_seg->header.frame_id=worldFrame_;
+
+            extract.setInputCloud (processCloud_v2);
+            extract.setIndices (inliers);
+            extract.setNegative(true);
+            extract.filter (*cloud_without_planes);
+            cloud_without_planes->header.frame_id=worldFrame_;
+            processCloud_v2=cloud_without_planes;
+
+        }while(1);
+    }
+    else {
+        ROS_INFO("planesegmentation only ground");
+        // make histogramm of z values around 0;
+        std::vector<float> bagvalues;
+        std::vector<int> bags;
+        int container = 7;
+        float min = processCloud_v2->at(0).z;
+        for (int i = 0; i < processCloud_v2->size(); i++){
+            pcl::PointXYZ p = processCloud_v2->at(i);
+            float z = p.z;
+            z < min;
+            min = z;
         }
-
-        if(inliers->indices.size() < numberPointsThresh_){
-            break;
+        float dist = 0.05; // bagsize 5 cm
+        for (int i = 0; i = container; i++){
+            bagvalues.push_back(min + i*dist);
+            bags.push_back(0);
         }
-        ROS_DEBUG("extract reset points");
-        pcl::ExtractIndices<pcl::PointXYZ> extract;
-        extract.setInputCloud (processCloud_v2);
-        extract.setIndices (inliers);
-        extract.setNegative(false);
-        extract.filter (*output_cloud_plane_seg);
-        output_cloud_plane_seg->header.frame_id=worldFrame_;
+        //fill bags
+        for (int i = 0; i < processCloud_v2->size(); i++){
+            pcl::PointXYZ p = processCloud_v2->at(i);
+            float z = p.z;
+            for (int k = 0; k < bagvalues.size() - 1; k++)
+                if (z>bagvalues[k] && z <=bagvalues[k+1])
+                    bags[k]++;
 
-        extract.setInputCloud (processCloud_v2);
-        extract.setIndices (inliers);
-        extract.setNegative(true);
-        extract.filter (*cloud_without_planes);
-        cloud_without_planes->header.frame_id=worldFrame_;
-        processCloud_v2=cloud_without_planes;
-
-    }while(1);
+        }
+        int maxidx = 0;
+        for (int i = 0; i < bags.size()-1; i++){
+            if (bags[i] > bags[maxidx])
+                maxidx = i;
+        }
+        
+        pcl::PointCloud<pcl::PointXYZ>::Ptr temp(new pcl::PointCloud<pcl::PointXYZ>());        
+        //remove the points from cloud
+        for (int i = 0; i < processCloud_v2->size(); i++){
+            pcl::PointXYZ p = processCloud_v2->at(i);
+            float z = p.z;
+            if (z < bagvalues[maxidx] || z >bagvalues[maxidx+1])
+                temp->push_back(p);
+        }
+        processCloud_v2 = temp;
+    }
 
     ROS_INFO("ouput plane size: %d", (int)output_cloud_plane_seg->size());
     cloud_without_planes_pub_debug_.publish(cloud_without_planes);
