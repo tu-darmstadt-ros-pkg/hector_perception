@@ -45,6 +45,7 @@ HectorFivePipesDetection::HectorFivePipesDetection(){
 
     using_LIDAR = false;
     PCL_initiated_by_realsense = false;
+    PCL_initiated_by_lidar = false;
     robot_pose_init = false;
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr first_cloud(new pcl::PointCloud<pcl::PointXYZ>());
@@ -56,6 +57,8 @@ HectorFivePipesDetection::~HectorFivePipesDetection()
 {}
 
 void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2& pc_msg){
+    if (priorityRGBD_ == 0 || PCL_initiated_by_lidar && priorityRGBD_ < priorityLIDAR_) // use realsense data if available
+        return;
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr current_pcl(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::fromROSMsg(pc_msg, *current_pcl);
@@ -70,11 +73,12 @@ void HectorFivePipesDetection::PclCallback(const sensor_msgs::PointCloud2& pc_ms
 }
 
 void HectorFivePipesDetection::LIDAR_PclCallback(const sensor_msgs::PointCloud2& pc_msg){
-    if (PCL_initiated_by_realsense) // use realsense data if available
+    if (priorityLIDAR_ == 0 || PCL_initiated_by_realsense && priorityLIDAR_ < priorityRGBD_) // use realsense data if available
         return;
     pcl::PointCloud<pcl::PointXYZ>::Ptr current_pcl(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::fromROSMsg(pc_msg, *current_pcl);
     if(!current_pcl->empty()){
+        PCL_initiated_by_lidar = true;
         input_cloud=current_pcl;
         using_LIDAR = true;
     }
@@ -135,15 +139,14 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     }
 
     // filter the cloud;
-    bool filtercloud = false;
-    if (filter_cloud_max_stdev_ > 0.00001 && filtercloud){ // do not use filter if stdev == 0
+    if (doFilterCloud_pre_plane_){ // do not use filter if stdev == 0
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>());
         pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
         sor.setInputCloud (input_cloud);
-        sor.setMeanK (filter_cloud_n_neighbors_);
-        sor.setStddevMulThresh (filter_cloud_max_stdev_);
+        sor.setMeanK (filter_cloud_n_neighbors_pre_plane_);
+        sor.setStddevMulThresh (filter_cloud_max_stdev_pre_plane_);
         sor.filter (*cloud_filtered);
-        ROS_INFO("cloud filtered from size %i to %i. n_neighbors = %i and std = %f", input_cloud->size(), cloud_filtered->size(), filter_cloud_n_neighbors_, filter_cloud_max_stdev_);
+        ROS_INFO("cloud filtered from size %i to %i. n_neighbors = %i and std = %f", input_cloud->size(), cloud_filtered->size(), filter_cloud_n_neighbors_pre_plane_, filter_cloud_max_stdev_pre_plane_);
         input_cloud = cloud_filtered;
         filtered_cloud_debug_.publish(input_cloud);
     }
@@ -344,6 +347,20 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     ROS_DEBUG("ouput plane size: %d", (int)output_cloud_plane_seg->size());
     cloud_without_planes_pub_debug_.publish(cloud_without_planes);
 
+
+    // filter the cloud again;
+    if (doFilterCloud_post_plane_){ // do not use filter if stdev == 0
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>());
+        pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+        sor.setInputCloud (input_cloud);
+        sor.setMeanK (filter_cloud_n_neighbors_post_plane_);
+        sor.setStddevMulThresh (filter_cloud_max_stdev_post_plane_);
+        sor.filter (*cloud_filtered);
+        ROS_INFO("cloud filtered from size %i to %i. n_neighbors = %i and std = %f", input_cloud->size(), cloud_filtered->size(), filter_cloud_n_neighbors_post_plane_, filter_cloud_max_stdev_post_plane_);
+        input_cloud = cloud_filtered;
+        filtered_cloud_debug_.publish(input_cloud);
+    }
+
     // clustering
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
     cloud_without_planes = cleanPointCloud(cloud_without_planes);
@@ -400,10 +417,8 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
     ROS_INFO("5pipes: %i clusters found. Proceed.", cloud_cluster_centers->size());
 
     // filter clusters
-    bool filter_clusters_active = false; //PARAM
-    if (filter_clusters_active){
+    if (do_min_cluster_radius_){
         ROS_INFO("enter filtering clusters");
-        float max_radius = 0.03;
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster_centers_copy (new pcl::PointCloud<pcl::PointXYZ>);
         pcl::PointCloud<pcl::PointXYZ>::Ptr cluster_centers_filtered (new pcl::PointCloud<pcl::PointXYZ>);
         for(int i=0; i< cloud_cluster_centers->points.size(); i++){
@@ -421,7 +436,7 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
             while (cloud_cluster_centers_copy->empty() == false){
                 pcl::PointXYZ p2 = cloud_cluster_centers_copy->front();
                 float dist = std::sqrt(std::pow(p1.x - p2.x, 2) + std::pow(p1.y - p2.y,2) + std::pow(p1.z - p2.z,2));
-                if (dist < max_radius){
+                if (dist < min_cluster_radius_){
                     n = n+1;
                     sumx = p2.x;
                     sumy = p2.y;
@@ -576,6 +591,8 @@ bool HectorFivePipesDetection::findPipes(const geometry_msgs::Point& min, const 
 
 void HectorFivePipesDetection::dynamic_recf_cb(hector_five_pipes_detection::HectorFivePipesDetectionConfig &config, uint32_t level)
 {
+    priorityRGBD_= config.priorityRGBD;
+    priorityLIDAR_= config.priorityLIDAR;
     x_min_dist_BB_= config.x_min_dist_BB;
     x_max_dist_BB_= config.x_max_dist_BB;
     y_tolarance_BB_= config.y_tolarance_BB;
@@ -587,9 +604,14 @@ void HectorFivePipesDetection::dynamic_recf_cb(hector_five_pipes_detection::Hect
     minClusterSize_= config.minClusterSize;
     maxClusterSize_= config.maxClusterSize;
     searchRadius_= config.searchRadius;
-    filter_radius_ = config.filter_radius;
-    filter_cloud_n_neighbors_ = config.filter_cloud_n_neighbors;
-    filter_cloud_max_stdev_ = config.filter_cloud_max_stdev;
+    do_min_cluster_radius_ = config.do_min_cluster_radius;
+    min_cluster_radius_ = config.min_cluster_radius;
+    doFilterCloud_pre_plane_= config.doFilterCloud_pre_plane;
+    filter_cloud_n_neighbors_pre_plane_ = config.filter_cloud_n_neighbors_pre_plane;
+    filter_cloud_max_stdev_pre_plane_ = config.filter_cloud_max_stdev_pre_plane;
+    doFilterCloud_post_plane_= config.doFilterCloud_post_plane;
+    filter_cloud_n_neighbors_post_plane_ = config.filter_cloud_n_neighbors_post_plane;
+    filter_cloud_max_stdev_post_plane_ = config.filter_cloud_max_stdev_post_plane;
 
 }
 

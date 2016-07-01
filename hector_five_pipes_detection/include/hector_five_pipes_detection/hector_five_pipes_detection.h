@@ -86,6 +86,7 @@ protected:
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud;
     bool using_LIDAR;
     bool PCL_initiated_by_realsense;
+    bool PCL_initiated_by_lidar;
     void PclCallback(const sensor_msgs::PointCloud2 &pc_msg);
     void LIDAR_PclCallback(const sensor_msgs::PointCloud2 &pc_msg);
   //  void TfCallback(const tf2_msgs::TFMessage &tf_msg);
@@ -98,6 +99,8 @@ protected:
 
 private:
     //params
+    float priorityRGBD_;
+    float priorityLIDAR_;
     float x_min_dist_BB_;
     float x_max_dist_BB_;
     float y_tolarance_BB_;
@@ -109,9 +112,14 @@ private:
     int minClusterSize_;
     int maxClusterSize_;
     float searchRadius_;
-    float filter_radius_;
-    int filter_cloud_n_neighbors_;
-    float filter_cloud_max_stdev_;
+    float do_min_cluster_radius_;
+    float min_cluster_radius_;
+    float doFilterCloud_pre_plane_;
+    int filter_cloud_n_neighbors_pre_plane_;
+    float filter_cloud_max_stdev_pre_plane_;
+    float doFilterCloud_post_plane_;
+    int filter_cloud_n_neighbors_post_plane_;
+    float filter_cloud_max_stdev_post_plane_;
 
     std::string worldFrame_;
 
