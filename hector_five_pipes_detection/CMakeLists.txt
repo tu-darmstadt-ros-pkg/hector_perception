@@ -130,7 +130,7 @@ add_executable(hector_five_pipes_detection_node src/hector_five_pipes_detection_
    ${PCL_LIBRARY_DIRS}
 )
 
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${boost_LIBRARIES} ${PCL_LIBRARIES} libvtkCommon.so libvtkFiltering.so)
+target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${boost_LIBRARIES} ${PCL_LIBRARIES})
 
 #############
 ## Install ##
