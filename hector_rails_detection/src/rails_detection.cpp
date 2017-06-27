@@ -330,14 +330,12 @@ void RailsDetection::detectBlobs(const cv::Mat& img, std::vector<cv::KeyPoint>& 
     // Filter by Inertia
     params.filterByInertia = false;
     params.minInertiaRatio = 0.01;
-    cv::SimpleBlobDetector detector;
-    detector.create(params);
-
+    cv::Ptr<cv::SimpleBlobDetector> detector = cv::SimpleBlobDetector::create(params);
     params.filterByColor = false;
 
     // Detect blobs.
     keypoints.clear();
-    detector.detect( blob_base, keypoints);
+    detector->detect( blob_base, keypoints);
 }
 
 
