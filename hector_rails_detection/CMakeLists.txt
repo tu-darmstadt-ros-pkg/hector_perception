@@ -69,7 +69,7 @@ add_executable(hector_rails_detection_node src/rails_detection_node.cpp)
    ${PCL_LIBRARY_DIRS}
 )
 
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${boost_LIBRARIES} ${PCL_LIBRARIES} libvtkCommon.so libvtkFiltering.so)
+target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${boost_LIBRARIES} ${PCL_LIBRARIES})
 
 
 #common commands for building c++ executables and libraries

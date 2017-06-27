@@ -38,6 +38,8 @@
 #include <grid_map_ros/GridMapRosConverter.hpp>
 #include <hector_worldmodel_msgs/PosePercept.h>
 
+#include "opencv2/features2d.hpp"
+
 namespace hector_rails_detection
 {
 RailsDetection::RailsDetection()
@@ -328,7 +330,8 @@ void RailsDetection::detectBlobs(const cv::Mat& img, std::vector<cv::KeyPoint>& 
     // Filter by Inertia
     params.filterByInertia = false;
     params.minInertiaRatio = 0.01;
-    cv::SimpleBlobDetector detector(params);
+    cv::SimpleBlobDetector detector;
+    detector.create(params);
 
     params.filterByColor = false;
 
