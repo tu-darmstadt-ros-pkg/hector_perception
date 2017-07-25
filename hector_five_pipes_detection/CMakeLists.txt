@@ -14,6 +14,10 @@ find_package(catkin REQUIRED COMPONENTS
   hector_perception_msgs
   dynamic_reconfigure
   hector_worldmodel_msgs
+  pcl_to_cv_proc
+  cv_bridge
+  image_geometry
+  eigen_conversions
 )
 
 generate_dynamic_reconfigure_options(config/HectorFivePipesConfig.cfg)
@@ -94,7 +98,7 @@ include_directories(${PCL_INCLUDE_DIRS})
 catkin_package(
  INCLUDE_DIRS include
   LIBRARIES hector_five_pipes_detection
-  CATKIN_DEPENDS roscpp pcl_conversions tf_conversions actionlib sensor_msgs std_msgs hector_perception_msgs
+  CATKIN_DEPENDS roscpp pcl_conversions tf_conversions actionlib sensor_msgs std_msgs hector_perception_msgs pcl_to_cv_proc cv_bridge image_geometry
   DEPENDS system_lib
 )
 

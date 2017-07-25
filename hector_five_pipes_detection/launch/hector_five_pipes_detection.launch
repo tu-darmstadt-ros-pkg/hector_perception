@@ -1,4 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-<node name="hector_five_pipes_detection_node" pkg="hector_five_pipes_detection" type="hector_five_pipes_detection_node" respawn="true" output="screen"/>
+  <node name="hector_five_pipes_detection_node" pkg="hector_five_pipes_detection" type="hector_five_pipes_detection_node" respawn="true" output="screen">
+    <remap from="cloud" to="/arm_rgbd_cam/depth/points" />
+  </node>
 </launch>
